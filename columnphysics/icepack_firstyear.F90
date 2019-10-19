@@ -15,8 +15,8 @@
 
       use icepack_kinds
       use icepack_parameters, only: secday, c0
-      use icepack_warnings, only: warnstr, icepack_warnings_add
-      use icepack_warnings, only: icepack_warnings_setabort, icepack_warnings_aborted
+!debug      use icepack_warnings, only: warnstr, icepack_warnings_add
+!debug      use icepack_warnings, only: icepack_warnings_setabort, icepack_warnings_aborted
 
       implicit none
 
@@ -50,7 +50,7 @@
          intent(inout) :: &
          FYarea
 
-      character(len=*),parameter :: subname='(update_FYarea)'
+!debug      character(len=*),parameter :: subname='(update_FYarea)'
 
       if ((yday >= 259._dbl_kind) .and. &
           (yday <  259._dbl_kind+dt/secday)) then

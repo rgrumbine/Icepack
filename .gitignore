@@ -10,3 +10,7 @@ doc/build
 
 # Ignore testsuite file/directories
 testsuite*
+
+# Ignore build temporaries -- .o, .mod
+*.o
+*.mod
