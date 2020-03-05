@@ -107,7 +107,10 @@ Testing will be described in greater detail in the :ref:`testing` section.
   prints the Icepack version to the terminal and exits.
 
 ``--setvers``
-  Updates the stored value of the Icepack version in the sandbox and exits  See :ref:`version` for more information
+  Updates the stored value of the Icepack version in the sandbox and exits  See :ref:`version` for more information.
+
+``--docintfc``
+  Runs a script that updates the public interfaces in the documentation.  This script parses the source code directly.  See :ref:`docintfc` for more information.
 
 ``--case``, ``-c`` CASE
   specifies the case name.  This can be either a relative path of an absolute path.  This cannot be used with --test or --suite.  Either ``--case``, ``--test``, or ``--suite`` is required.
@@ -193,7 +196,7 @@ To add some optional settings, one might do::
 
   icepack.setup --case mycase2 --mach spirit --env intel --set debug,diag1,run1year,pondtopo
 
-Once the cases are created, users are free to modify the icepack.settings and icepack_in namelist to further modify their setup.
+Once the cases are created, users are free to modify the **icepack.settings** and **icepack_in** namelist to further modify their setup.
 
 .. _version:
 
@@ -241,6 +244,8 @@ Porting
 To port, an **env.[machine]_[environment]** and **Macros.[machine]_[environment]** file have to be added to the
 **configuration/scripts/machines/** directory and the 
 **configuration/scripts/icepack.batch.csh** file needs to be modified.
+In addition **configuration/scripts/icepack.launch.csh** may need to
+be modified if simply running the binary directly will not work.
 In general, the machine is specified in ``icepack.setup`` with ``--mach``
 and the environment (compiler) is specified with ``--env``.
  
@@ -254,6 +259,9 @@ and the environment (compiler) is specified with ``--env``.
 
 - Edit the **icepack.batch.csh** script to add a section for your machine 
   with batch settings and job launch settings
+
+- Edit the **icepack.launch.csh** script to add a section for your machine 
+  if executing the binary directly is not supported
 
 - Download and untar a forcing dataset to the location defined by 
   ``ICE_MACHINE_INPUTDATA`` in the env file
@@ -301,6 +309,269 @@ preferred account name to the first line.
 There is also an option (``--queue``) in **icepack.setup** to define the queue name on a case basis.
 The order of precedent is **icepack.setup** command line option, 
 **.cice\_queue** setting, and then value in the **env.[machine]** file.
+
+.. _laptops:
+
+Porting to Laptop or Personal Computers
+-----------------------------------------
+To get the required software necessary to build and run Icepack, a `conda <https://docs.conda.io/en/latest/>`_ environment file is available at :
+
+``configuration/scripts/machines/environment.yml``.
+
+This configuration is supported by the Consortium on a best-effort basis on macOS and GNU/Linux. It is untested under Windows, but might work using the `Windows Subsystem for Linux <https://docs.microsoft.com/en-us/windows/wsl/install-win10>`_.
+
+Once you have installed Miniconda and created the ``icepack`` conda environment by following the procedures in this section, Icepack should run on your machine without having to go through the formal :ref:`porting` process outlined above.
+
+.. _install_miniconda:
+
+Installing Miniconda
+~~~~~~~~~~~~~~~~~~~~
+
+We recommend the use of the `Miniconda distribution <https://docs.conda.io/en/latest/miniconda.html>`_ to create a self-contained conda environment from the ``environment.yml`` file.
+This process has to be done only once.
+If you do not have Miniconda or Anaconda installed, you can install Miniconda by following the `official instructions  <https://conda.io/projects/conda/en/latest/user-guide/install/index.html>`_, or with these steps:
+
+On macOS:
+
+.. code-block:: bash
+
+  # Download the Miniconda installer to ~/Downloads/miniconda.sh
+  curl -L https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh -o ~/Downloads/miniconda.sh
+  # Install Miniconda
+  bash ~/Downloads/miniconda.sh
+  
+  # Follow the prompts
+  
+  # Close and reopen your shell
+
+
+On GNU/Linux:
+
+.. code-block:: bash
+
+  # Download the Miniconda installer to ~/miniconda.sh
+  wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh
+  # Install Miniconda
+  bash ~/miniconda.sh
+  
+  # Follow the prompts
+  
+  # Close and reopen your shell
+  
+
+Note: on some Linux distributions (including Ubuntu and its derivatives), the csh shell that comes with the system is not compatible with conda.
+You will need to install the tcsh shell (which is backwards compatible with csh), and configure your system to use tcsh as csh:
+
+.. code-block:: bash
+
+  # Install tcsh
+  sudo apt-get install tcsh
+  # Configure your system to use tcsh as csh
+  sudo update-alternatives --set csh /bin/tcsh
+
+.. _init_shell:
+
+Initializing your shell for use with conda
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We recommend initializing your default shell to use conda.
+This process has to be done only once.
+
+The Miniconda installer should ask you if you want to do that as part of the installation procedure.
+If you did not answer "yes", you can use one of the following procedures depending on your default shell.
+Bash should be your default shell if you are on macOS (10.14 and older) or GNU/Linux.
+
+Note: answering "yes" during the Miniconda installation procedure will only initialize the Bash shell for use with conda.
+
+If your Mac has macOS 10.15 or higher, your default shell is Zsh. 
+
+These instructions make sure that the ``conda`` command is available when you start your shell by modifying your shell's startup file.
+Also, they make sure not to activate the "base" conda environment when you start your shell.
+This conda environment is created during the Miniconda installation but is not used for Icepack. 
+
+For Bash:
+
+.. code-block:: bash
+
+  # Install miniconda as indicated above, then initialize your shell to use conda:
+  source $HOME/miniconda3/bin/activate
+  conda init bash
+  
+  # Don't activate the "base" conda environment on shell startup
+  conda config --set auto_activate_base false
+  
+  # Close and reopen your shell
+
+For Zsh (Z shell):
+
+.. code-block:: bash
+
+  # Initialize Zsh to use conda
+  source $HOME/miniconda3/bin/activate
+  conda init zsh
+  
+  # Don't activate the "base" conda environment on shell startup
+  conda config --set auto_activate_base false
+  
+  # Close and reopen your shell
+
+For tcsh:
+
+.. code-block:: bash
+  
+  # Install miniconda as indicated above, then initialize your shell to use conda:
+  source $HOME/miniconda3/etc/profile.d/conda.csh
+  conda init tcsh
+  
+  # Don't activate the "base" conda environment on shell startup
+  conda config --set auto_activate_base false
+  
+  # Close and reopen your shell
+
+For fish:
+
+.. code-block:: bash
+  
+  # Install miniconda as indicated above, then initialize your shell to use conda:
+  source $HOME/miniconda3/etc/fish/conf.d/conda.fish
+  conda init fish
+  
+  # Don't activate the "base" conda environment on shell startup
+  conda config --set auto_activate_base false
+  
+  # Close and reopen your shell
+
+For xonsh:
+
+.. code-block:: bash
+
+  # Install miniconda as indicated above, then initialize your shell to use conda:
+  source-bash $HOME/miniconda3/bin/activate
+  conda init xonsh
+  
+  # Don't activate the "base" conda environment on shell startup
+  conda config --set auto_activate_base false
+  
+  # Close and reopen your shell
+
+.. _init_shell_manually:
+
+Initializing your shell for conda manually
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you prefer not to modify your shell startup files, you will need to run the appropriate ``source`` command below (depending on your default shell) before using any conda command, and before compiling and running Icepack.
+These instructions make sure the ``conda`` command is available for the duration of your shell session.
+
+For Bash and Zsh:
+
+.. code-block:: bash
+
+  # Initialize your shell session to use conda:
+  source $HOME/miniconda3/bin/activate
+
+For tcsh:
+
+.. code-block:: bash
+  
+  # Initialize your shell session to use conda:
+  source $HOME/miniconda3/etc/profile.d/conda.csh
+
+
+For fish:
+
+.. code-block:: bash
+  
+  # Initialize your shell session to use conda:
+  source $HOME/miniconda3/etc/fish/conf.d/conda.fish
+
+For xonsh:
+
+.. code-block:: bash
+
+  # Initialize your shell session to use conda:
+  source-bash $HOME/miniconda3/bin/activate
+
+
+.. _create_conda_env:
+
+Creating Icepack directories and the conda environment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The conda configuration expects some directories and files to be present at ``$HOME/icepack-dirs``:
+
+.. code-block:: bash
+
+  cd $HOME
+  mkdir -p icepack-dirs/runs icepack-dirs/baseline icepack-dirs/input
+  # Download the required forcing from https://github.com/CICE-Consortium/Icepack/wiki/Icepack-Input-Data
+  # and untar it at $HOME/icepack-dirs/input
+
+This step needs to be done only once.
+
+If you prefer that some or all of the Icepack directories be located somewhere else, you can create a symlink from your home to another location:
+
+.. code-block:: bash
+
+  
+  # Create the Icepack directories at your preferred location
+  cd ${somewhere}
+  mkdir -p icepack-dirs/runs icepack-dirs/baseline icepack-dirs/input
+  # Download the required forcing from https://github.com/CICE-Consortium/Icepack/wiki/Icepack-Input-Data
+  # and untar it at icepack-dirs/input
+  
+  # Create a symlink to icepack-dirs in your $HOME
+  cd $HOME
+  ln -s ${somewhere}/icepack-dirs icepack-dirs
+
+Note: if you wish, you can also create a complete machine port for your computer by leveraging the conda configuration as a starting point. See :ref:`porting`.
+
+Next, create the "icepack" conda environment from the ``environment.yml`` file:
+
+.. code-block:: bash
+
+  conda env create -f configuration/scripts/machines/environment.yml
+
+This step needs to be done only once.
+
+.. _using_conda_env:
+
+Using the conda configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Follow the general instructions in :ref:`overview`, using the ``conda`` machine name and ``macos`` or ``linux`` as compiler names.
+
+On macOS:
+
+.. code-block:: bash
+
+  ./icepack.setup -m conda -e macos -c ~/icepack-dirs/cases/case1
+  cd ~/icepack-dirs/cases/case1
+  ./icepack.build
+  ./icepack.run
+
+On GNU/Linux:
+
+.. code-block:: bash
+
+  ./icepack.setup -m conda -e linux -c ~/icepack-dirs/cases/case1
+  cd ~/icepack-dirs/cases/case1
+  ./icepack.build
+  ./icepack.run
+
+A few notes about the conda configuration:
+
+- This configuration always runs the model interactively, such that ``./icepack.run`` and ``./icepack.submit`` are the same.
+- You should not update the packages in the ``icepack`` conda environment, nor install additional packages.
+- It is not recommeded to run other test suites than ``quick_suite`` or ``travis_suite`` on a personal computer.
+- The conda environment is automatically activated when compiling or running the model using the ``./icepack.build`` and ``./icepack.run`` scripts in the case directory. These scripts source the file ``env.conda_{linux.macos}``, which calls ``conda activate icepack``.
+- The environment also contains the Sphinx package necessesary to build the HTML documentation. For this use case you must manually activate the environment:
+
+  .. code-block:: bash
+  
+    cd doc
+    conda activate icepack
+    make html
+    # Open build/html/index.html in your browser
+    conda deactivate  # to deactivate the environment
 
 .. _force:
 

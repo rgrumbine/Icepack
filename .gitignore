@@ -14,3 +14,4 @@ testsuite*
 # Ignore build temporaries -- .o, .mod
 *.o
 *.mod
+caselist*

@@ -5,8 +5,8 @@
 
 .. _user_guide:
 
-User Guide
------------------
+Standalone User Guide
+-------------------------
 
 .. toctree::
    :maxdepth: 3
@@ -16,3 +16,7 @@ User Guide
    ug_testing.rst
    ug_case_settings.rst
    ug_troubleshooting.rst
+
+
+
+
