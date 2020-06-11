@@ -6,7 +6,7 @@
     dt             = 3600.0
     npt            = 8760
     ndtd           = 1
-    ice_ic         = 'none'
+    ice_ic         = 'default'
     restart        = .false.
     restart_dir    = './restart/'
     dumpfreq       = 'y'
@@ -14,6 +14,7 @@
     diagfreq       = 24
     diag_file      = 'ice_diag'
     cpl_bgc        = .false.
+    conserv_check  = .false.
 /
 
 &grid_nml
@@ -28,11 +29,14 @@
     tr_pond_topo = .false.
     tr_pond_lvl  = .true.
     tr_aero      = .false.
+    tr_fsd       = .false.
+    tr_iso       = .false.
 /
 
 &thermo_nml
     kitd              = 1
     ktherm            = 2
+    ksno              = 0.3d0
     conduct           = 'bubbly'
     a_rapid_mode      =  0.5e-3
     Rac_rapid_mode    =    10.0
@@ -76,6 +80,7 @@
     calc_Tsfc       = .true.
     highfreq        = .false.
     natmiter        = 5
+    atmiter_conv    = 0.0d0
     ustar_min       = 0.0005
     emissivity      = 0.95
     fbot_xfer_type  = 'constant'
@@ -83,6 +88,7 @@
     l_mpond_fresh   = .false.
     tfrz_option     = 'mushy'
     oceanmixed_ice  = .true.
+    wave_spec_type  = 'none'
     restore_ocn     = .false.
     trestore        = 90
     precip_units    = 'mks'
