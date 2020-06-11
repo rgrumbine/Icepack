@@ -16,6 +16,7 @@ setenv ICE_RSTPFILE   undefined
 setenv ICE_DRVOPT     icepack
 setenv ICE_IOTYPE     none    # set to none if netcdf library is unavailable
 setenv ICE_CLEANBUILD true
+setenv ICE_CPPDEFS    ""
 setenv ICE_QUIETMODE  false
 setenv ICE_GRID       col
 setenv ICE_NXGLOB     4
@@ -37,10 +38,11 @@ setenv ICE_QUEUE      undefined
 setenv ICE_THREADED   false
 if (${ICE_NTHRDS} > 1) setenv ICE_THREADED  true
 
-### Layers
+### Layers and Categories
 setenv NICELYR   7         # number of vertical layers in the ice
 setenv NSNWLYR   1         # number of vertical layers in the snow
 setenv NICECAT   5         # number of ice thickness categories
+setenv NFSDCAT   1         # number of floe size categories
 
 ### Tracers                # match icepack_in tracer_nml to conserve memory
 setenv TRAGE     1         # set to 1 for ice age tracer
@@ -50,6 +52,7 @@ setenv TRPND     1         # set to 1 for melt pond tracers
 setenv NTRAERO   1         # number of aerosol tracers 
                            # (up to max_aero in ice_domain_size.F90) 
                            # CESM uses 3 aerosol tracers
+setenv NTRISO    0         # number of isotopes (up to max_iso)
 setenv TRBRI     0         # set to 1 for brine height tracer
 setenv TRZS      0         # set to 1 for zsalinity tracer
                            # (needs TRBRI = 1)
@@ -75,5 +78,6 @@ setenv TRFED     0         # number of dissolved iron tracers
 
 ### Specialty code
 setenv ICE_BLDDEBUG  false  # build debug flags
+setenv ICE_CODECOV  false   # code coverage flag
 
 

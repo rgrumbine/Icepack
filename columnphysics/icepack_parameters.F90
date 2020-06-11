@@ -151,8 +151,9 @@
                                   ! atmos-ice fluxes are provided to CICE
          update_ocn_f = .false. ,&! include fresh water and salt fluxes for frazil
          solve_zsal   = .false. ,&! if true, update salinity profile from solve_S_dt
-         modal_aero   = .false.   ! if true, use modal aerosal optical properties
+         modal_aero   = .false. ,&! if true, use modal aerosal optical properties
                                   ! only for use with tr_aero or tr_zaero
+         conserv_check = .false.  ! if true, do conservations checks and abort
 
       character(len=char_len), public :: &
          tfrz_option  = 'mushy'   ! form of ocean freezing temperature
@@ -253,6 +254,9 @@
       integer (kind=int_kind), public :: &
          natmiter        = 5 ! number of iterations for atm boundary layer calcs
 
+      ! Flux convergence tolerance
+      real (kind=dbl_kind), public :: atmiter_conv = c0
+
 !-----------------------------------------------------------------------
 ! Parameters for the ice thickness distribution
 !-----------------------------------------------------------------------
@@ -265,6 +269,22 @@
                          !   1 = new formula giving round numbers
                          !   2 = WMO standard
                          !   3 = asymptotic formula
+
+!-----------------------------------------------------------------------
+! Parameters for the floe size distribution
+!-----------------------------------------------------------------------
+
+      integer (kind=int_kind), public :: &
+         nfreq = 25                   ! number of frequencies
+
+      real (kind=dbl_kind), public :: &
+         floeshape = 0.666_dbl_kind   ! constant from Steele (unitless)
+
+      logical (kind=log_kind), public :: &
+         wave_spec = .false.          ! if true, use wave forcing
+
+      character (len=char_len), public :: &
+         wave_spec_type = 'constant'  ! 'none', 'constant', or 'random'
 
 !-----------------------------------------------------------------------
 ! Parameters for melt ponds
@@ -341,6 +361,7 @@
 
 !=======================================================================
 
+!autodocument_start icepack_init_parameters
 ! subroutine to set the column package internal parameters
 
       subroutine icepack_init_parameters(   &
@@ -367,7 +388,9 @@
          ahmax_in, R_ice_in, R_pnd_in, R_snw_in, dT_mlt_in, rsnw_mlt_in, &
          kalg_in, kstrength_in, krdg_partic_in, krdg_redist_in, mu_rdg_in, &
          atmbndy_in, calc_strair_in, formdrag_in, highfreq_in, natmiter_in, &
+         atmiter_conv_in, &
          tfrz_option_in, kitd_in, kcatbound_in, hs0_in, frzpnd_in, &
+         floeshape_in, wave_spec_in, wave_spec_type_in, nfreq_in, &
          dpscale_in, rfracmin_in, rfracmax_in, pndaspect_in, hs1_in, hp1_in, &
          bgc_flux_type_in, z_tracers_in, scale_bgc_in, solve_zbgc_in, &
          modal_aero_in, skl_bgc_in, solve_zsal_in, grid_o_in, l_sk_in, &
@@ -376,7 +399,7 @@
          fr_resp_in, algal_vel_in, R_dFe2dust_in, dustFe_sol_in, &
          op_dep_min_in, fr_graze_s_in, fr_graze_e_in, fr_mort2min_in, &
          fr_dFe_in, k_nitrif_in, t_iron_conv_in, max_loss_in, &
-         max_dfe_doc1_in, fr_resp_s_in, &
+         max_dfe_doc1_in, fr_resp_s_in, conserv_check_in, &
          y_sk_DMS_in, t_sk_conv_in, t_sk_ox_in, frazil_scav_in)
 
       !-----------------------------------------------------------------
@@ -553,6 +576,9 @@
       integer (kind=int_kind), intent(in), optional :: &
          natmiter_in        ! number of iterations for boundary layer calculations
         
+      ! Flux convergence tolerance
+      real (kind=dbl_kind), intent(in), optional :: atmiter_conv_in
+
 !-----------------------------------------------------------------------
 ! Parameters for the ice thickness distribution
 !-----------------------------------------------------------------------
@@ -567,6 +593,22 @@
                             !   3 = asymptotic formula
 
 !-----------------------------------------------------------------------
+! Parameters for the floe size distribution
+!-----------------------------------------------------------------------
+
+      integer (kind=int_kind), intent(in), optional :: &
+         nfreq_in           ! number of frequencies
+
+      real (kind=dbl_kind), intent(in), optional :: &
+         floeshape_in       ! constant from Steele (unitless)
+
+      logical (kind=log_kind), intent(in), optional :: &
+         wave_spec_in       ! if true, use wave forcing
+
+      character (len=char_len), intent(in), optional :: &
+         wave_spec_type_in  ! type of wave spectrum forcing 
+
+!-----------------------------------------------------------------------
 ! Parameters for biogeochemistry
 !-----------------------------------------------------------------------
 
@@ -579,7 +621,8 @@
          scale_bgc_in,      & ! if .true., initialize bgc tracers proportionally with salinity
          solve_zbgc_in,     & ! if .true., solve vertical biochemistry portion of code
          dEdd_algae_in,     & ! if .true., algal absorptionof Shortwave is computed in the
-         modal_aero_in        ! if .true., use modal aerosol formulation in shortwave
+         modal_aero_in,     & ! if .true., use modal aerosol formulation in shortwave
+         conserv_check_in     ! if .true., run conservation checks and abort if checks fail
         
       logical (kind=log_kind), intent(in), optional :: & 
          skl_bgc_in,        &   ! if true, solve skeletal biochemistry
@@ -643,6 +686,8 @@
       ! topo ponds
       real (kind=dbl_kind), intent(in), optional :: &
          hp1_in             ! critical parameter for pond ice thickness
+
+!autodocument_end
 
       character(len=*),parameter :: subname='(icepack_init_parameters)'
 
@@ -739,9 +784,14 @@
       if (present(formdrag_in)          ) formdrag         = formdrag_in
       if (present(highfreq_in)          ) highfreq         = highfreq_in
       if (present(natmiter_in)          ) natmiter         = natmiter_in
+      if (present(atmiter_conv_in)      ) atmiter_conv     = atmiter_conv_in
       if (present(tfrz_option_in)       ) tfrz_option      = tfrz_option_in
       if (present(kitd_in)              ) kitd             = kitd_in
       if (present(kcatbound_in)         ) kcatbound        = kcatbound_in
+      if (present(floeshape_in)         ) floeshape        = floeshape_in
+      if (present(wave_spec_in)         ) wave_spec        = wave_spec_in
+      if (present(wave_spec_type_in)    ) wave_spec_type   = wave_spec_type_in
+      if (present(nfreq_in)             ) nfreq            = nfreq_in
       if (present(hs0_in)               ) hs0              = hs0_in
       if (present(frzpnd_in)            ) frzpnd           = frzpnd_in
       if (present(dpscale_in)           ) dpscale          = dpscale_in
@@ -756,6 +806,7 @@
       if (present(solve_zbgc_in)        ) solve_zbgc       = solve_zbgc_in
       if (present(dEdd_algae_in)        ) dEdd_algae       = dEdd_algae_in
       if (present(modal_aero_in)        ) modal_aero       = modal_aero_in
+      if (present(conserv_check_in)     ) conserv_check    = conserv_check_in
       if (present(skl_bgc_in)           ) skl_bgc          = skl_bgc_in
       if (present(solve_zsal_in)        ) solve_zsal       = solve_zsal_in
       if (present(grid_o_in)            ) grid_o           = grid_o_in
@@ -792,6 +843,7 @@
 
 !=======================================================================
 
+!autodocument_start icepack_query_parameters
 ! subroutine to query the column package internal parameters
 
       subroutine icepack_query_parameters(   &
@@ -823,12 +875,14 @@
          rsnw_mlt_out, dEdd_algae_out, &
          kalg_out, kstrength_out, krdg_partic_out, krdg_redist_out, mu_rdg_out, &
          atmbndy_out, calc_strair_out, formdrag_out, highfreq_out, natmiter_out, &
+         atmiter_conv_out, &
          tfrz_option_out, kitd_out, kcatbound_out, hs0_out, frzpnd_out, &
+         floeshape_out, wave_spec_out, wave_spec_type_out, nfreq_out, &
          dpscale_out, rfracmin_out, rfracmax_out, pndaspect_out, hs1_out, hp1_out, &
          bgc_flux_type_out, z_tracers_out, scale_bgc_out, solve_zbgc_out, &
          modal_aero_out, skl_bgc_out, solve_zsal_out, grid_o_out, l_sk_out, &
          initbio_frac_out, grid_oS_out, l_skS_out, &
-         phi_snow_out, heat_capacity_out, &
+         phi_snow_out, heat_capacity_out, conserv_check_out, &
          fr_resp_out, algal_vel_out, R_dFe2dust_out, dustFe_sol_out, &
          T_max_out, fsal_out, op_dep_min_out, fr_graze_s_out, fr_graze_e_out, &
          fr_mort2min_out, fr_resp_s_out, fr_dFe_out, &
@@ -1018,6 +1072,9 @@
       integer (kind=int_kind), intent(out), optional :: &
          natmiter_out        ! number of iterations for boundary layer calculations
         
+      ! Flux convergence tolerance
+      real (kind=dbl_kind), intent(out), optional :: atmiter_conv_out
+
 !-----------------------------------------------------------------------
 ! Parameters for the ice thickness distribution
 !-----------------------------------------------------------------------
@@ -1032,6 +1089,22 @@
                              !   3 = asymptotic formula
 
 !-----------------------------------------------------------------------
+! Parameters for the floe size distribution
+!-----------------------------------------------------------------------
+
+      integer (kind=int_kind), intent(out), optional :: &
+         nfreq_out          ! number of frequencies
+
+      real (kind=dbl_kind), intent(out), optional :: &
+         floeshape_out      ! constant from Steele (unitless)
+
+      logical (kind=log_kind), intent(out), optional :: &
+         wave_spec_out      ! if true, use wave forcing
+
+      character (len=char_len), intent(out), optional :: &
+         wave_spec_type_out ! type of wave spectrum forcing
+
+!-----------------------------------------------------------------------
 ! Parameters for biogeochemistry
 !-----------------------------------------------------------------------
 
@@ -1044,7 +1117,8 @@
          scale_bgc_out,      & ! if .true., initialize bgc tracers proportionally with salinity
          solve_zbgc_out,     & ! if .true., solve vertical biochemistry portion of code
          dEdd_algae_out,     & ! if .true., algal absorptionof Shortwave is computed in the
-         modal_aero_out        ! if .true., use modal aerosol formulation in shortwave
+         modal_aero_out,     & ! if .true., use modal aerosol formulation in shortwave
+         conserv_check_out     ! if .true., run conservation checks and abort if checks fail
         
       logical (kind=log_kind), intent(out), optional :: & 
          skl_bgc_out,        &   ! if true, solve skeletal biochemistry
@@ -1108,6 +1182,8 @@
       ! topo ponds
       real (kind=dbl_kind), intent(out), optional :: &
          hp1_out             ! critical parameter for pond ice thickness
+
+!autodocument_end
 
       character(len=*),parameter :: subname='(icepack_query_parameters)'
 
@@ -1245,9 +1321,14 @@
       if (present(formdrag_out)          ) formdrag_out     = formdrag
       if (present(highfreq_out)          ) highfreq_out     = highfreq
       if (present(natmiter_out)          ) natmiter_out     = natmiter
+      if (present(atmiter_conv_out)      ) atmiter_conv_out = atmiter_conv
       if (present(tfrz_option_out)       ) tfrz_option_out  = tfrz_option
       if (present(kitd_out)              ) kitd_out         = kitd
       if (present(kcatbound_out)         ) kcatbound_out    = kcatbound
+      if (present(floeshape_out)         ) floeshape_out    = floeshape
+      if (present(wave_spec_out)         ) wave_spec_out    = wave_spec
+      if (present(wave_spec_type_out)    ) wave_spec_type_out = wave_spec_type
+      if (present(nfreq_out)             ) nfreq_out        = nfreq
       if (present(hs0_out)               ) hs0_out          = hs0
       if (present(frzpnd_out)            ) frzpnd_out       = frzpnd
       if (present(dpscale_out)           ) dpscale_out      = dpscale
@@ -1262,6 +1343,7 @@
       if (present(solve_zbgc_out)        ) solve_zbgc_out   = solve_zbgc
       if (present(dEdd_algae_out)        ) dEdd_algae_out   = dEdd_algae
       if (present(modal_aero_out)        ) modal_aero_out   = modal_aero
+      if (present(conserv_check_out)     ) conserv_check_out= conserv_check
       if (present(skl_bgc_out)           ) skl_bgc_out      = skl_bgc
       if (present(solve_zsal_out)        ) solve_zsal_out   = solve_zsal
       if (present(grid_o_out)            ) grid_o_out       = grid_o
@@ -1301,12 +1383,15 @@
 
 !=======================================================================
 
+!autodocument_start icepack_write_parameters
 ! subroutine to write the column package internal parameters
 
       subroutine icepack_write_parameters(iounit)
 
         integer (kind=int_kind), intent(in) :: &
              iounit   ! unit number for output
+
+!autodocument_end
 
         character(len=*),parameter :: subname='(icepack_write_parameters)'
 
@@ -1411,9 +1496,14 @@
         write(iounit,*) "  formdrag      = ", formdrag
         write(iounit,*) "  highfreq      = ", highfreq
         write(iounit,*) "  natmiter      = ", natmiter
+        write(iounit,*) "  atmiter_conv  = ", atmiter_conv
         write(iounit,*) "  tfrz_option   = ", tfrz_option
         write(iounit,*) "  kitd          = ", kitd
         write(iounit,*) "  kcatbound     = ", kcatbound
+        write(iounit,*) "  floeshape     = ", floeshape
+        write(iounit,*) "  wave_spec     = ", wave_spec
+        write(iounit,*) "  wave_spec_type= ", wave_spec_type
+        write(iounit,*) "  nfreq         = ", nfreq
         write(iounit,*) "  hs0           = ", hs0
         write(iounit,*) "  frzpnd        = ", frzpnd
         write(iounit,*) "  dpscale       = ", dpscale
@@ -1428,6 +1518,7 @@
         write(iounit,*) "  solve_zbgc    = ", solve_zbgc
         write(iounit,*) "  dEdd_algae    = ", dEdd_algae
         write(iounit,*) "  modal_aero    = ", modal_aero
+        write(iounit,*) "  conserv_check = ", conserv_check
         write(iounit,*) "  skl_bgc       = ", skl_bgc
         write(iounit,*) "  solve_zsal    = ", solve_zsal
         write(iounit,*) "  grid_o        = ", grid_o
@@ -1461,7 +1552,12 @@
 
 !=======================================================================
 
+!autodocument_start icepack_recompute_constants
+! subroutine to reinitialize some derived constants
+
       subroutine icepack_recompute_constants()
+
+!autodocument_end
 
       character(len=*),parameter :: subname='(icepack_recompute_constants)'
 

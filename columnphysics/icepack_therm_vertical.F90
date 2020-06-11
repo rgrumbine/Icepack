@@ -28,8 +28,9 @@
       use icepack_parameters, only: rfracmin, rfracmax, pndaspect, dpscale, frzpnd
       use icepack_parameters, only: phi_i_mushy
 
-      use icepack_tracers, only: tr_iage, tr_FY, tr_aero, tr_pond
+      use icepack_tracers, only: tr_iage, tr_FY, tr_aero, tr_pond, tr_fsd, tr_iso
       use icepack_tracers, only: tr_pond_cesm, tr_pond_lvl, tr_pond_topo
+      use icepack_tracers, only: n_aero, n_iso
 
       use icepack_therm_shared, only: ferrmax, l_brine
       use icepack_therm_shared, only: calculate_tin_from_qin, Tmin
@@ -41,11 +42,12 @@
       use icepack_warnings, only: warnstr, icepack_warnings_add
       use icepack_warnings, only: icepack_warnings_setabort, icepack_warnings_aborted
 
-      use icepack_mushy_physics, only: temperature_mush
+      use icepack_mushy_physics, only: icepack_mushy_temperature_mush
       use icepack_mushy_physics, only: liquidus_temperature_mush
       use icepack_mushy_physics, only: enthalpy_mush, enthalpy_of_melting
 
       use icepack_aerosol, only: update_aerosol
+      use icepack_isotope, only: update_isotope
       use icepack_atmo, only: neutral_drag_coeffs, icepack_atm_boundary
       use icepack_age, only: increment_age
       use icepack_firstyear, only: update_FYarea
@@ -492,7 +494,8 @@
                                         fbot_xfer_type,     &
                                         strocnxT, strocnyT, &
                                         Tbot,     fbot,     &
-                                        rside,    Cdn_ocn)
+                                        rside,    Cdn_ocn,  &
+                                        fside)
 
       integer (kind=int_kind), intent(in) :: &
          ncat  , & ! number of thickness categories
@@ -526,7 +529,8 @@
       real (kind=dbl_kind), intent(out) :: &
          Tbot    , & ! ice bottom surface temperature (deg C)
          fbot    , & ! heat flux to ice bottom  (W/m^2)
-         rside       ! fraction of ice that melts laterally
+         rside   , & ! fraction of ice that melts laterally
+         fside       ! lateral heat flux (W/m^2)
 
       ! local variables
 
@@ -536,7 +540,7 @@
 
       real (kind=dbl_kind) :: &
          etot    , & ! total energy in column
-         fside       ! lateral heat flux (W/m^2)
+         qavg        ! average enthalpy in column (approximate)
 
       real (kind=dbl_kind) :: &
          deltaT    , & ! SST - Tbot >= 0
@@ -566,13 +570,13 @@
       !-----------------------------------------------------------------
 
       rside = c0
+      fside = c0
       Tbot  = Tf
       fbot  = c0
-      
+      wlat  = c0
+
       if (aice > puny .and. frzmlt < c0) then ! ice can melt
          
-         fside = c0
-
       !-----------------------------------------------------------------
       ! Use boundary layer theory for fbot.
       ! See Maykut and McPhee (1995): JGR, 100, 24,691-24,703.
@@ -616,19 +620,26 @@
          do n = 1, ncat
             
             etot = c0
+            qavg = c0
             
             ! melting energy/unit area in each column, etot < 0
             
             do k = 1, nslyr
                etot = etot + qsnon(k,n) * vsnon(n)/real(nslyr,kind=dbl_kind)
+               qavg = qavg + qsnon(k,n)
             enddo
             
             do k = 1, nilyr
                etot = etot + qicen(k,n) * vicen(n)/real(nilyr,kind=dbl_kind)
+               qavg = qavg + qicen(k,n)
             enddo                  ! nilyr
             
-            ! lateral heat flux
-            fside = fside + rside*etot/dt ! fside < 0
+            ! lateral heat flux, fside < 0
+            if (tr_fsd) then ! floe size distribution
+               fside = fside + wlat*qavg
+            else             ! default floe size
+               fside = fside + rside*etot/dt
+            endif
             
          enddo                     ! n
          
@@ -640,6 +651,7 @@
          xtmp = min(xtmp, c1)
          fbot  = fbot  * xtmp
          rside = rside * xtmp
+         fside = fside * xtmp
          
       endif
 
@@ -887,7 +899,7 @@
       !-----------------------------------------------------------------
          
          if (ktherm == 2) then
-            zTin(k) = temperature_mush(zqin(k),zSin(k))
+            zTin(k) = icepack_mushy_temperature_mush(zqin(k),zSin(k))
          else
             zTin(k) = calculate_Tin_from_qin(zqin(k),Tmlts(k))
          endif
@@ -941,7 +953,7 @@
                
                if (ktherm == 2) then
                   zqin(k) = enthalpy_of_melting(zSin(k)) - c1
-                  zTin(k) = temperature_mush(zqin(k),zSin(k))
+                  zTin(k) = icepack_mushy_temperature_mush(zqin(k),zSin(k))
                   write(warnstr,*) subname, 'Corrected quantities'
                   call icepack_warnings_add(warnstr)
                   write(warnstr,*) subname, 'zqin=',zqin(k)
@@ -2008,14 +2020,14 @@
       end subroutine update_state_vthermo
 
 !=======================================================================
-
+!autodocument_start icepack_step_therm1
 ! Driver for thermodynamic changes not needed for coupling:
 ! transport in thickness space, lateral growth and melting.
 !
 ! authors: William H. Lipscomb, LANL
 !          Elizabeth C. Hunke, LANL
 
-      subroutine icepack_step_therm1(dt, ncat, nilyr, nslyr, n_aero, &
+      subroutine icepack_step_therm1(dt, ncat, nilyr, nslyr,    &
                                     aicen_init  ,               &
                                     vicen_init  , vsnon_init  , &
                                     aice        , aicen       , &
@@ -2029,11 +2041,14 @@
                                     ipnd        ,               &
                                     iage        , FY          , &
                                     aerosno     , aeroice     , &
+                                    isosno      , isoice      , &
                                     uatm        , vatm        , &
                                     wind        , zlvl        , &
                                     Qa          , rhoa        , &
+                                    Qa_iso      , &
                                     Tair        , Tref        , &
                                     Qref        , Uref        , &
+                                    Qref_iso    , &
                                     Cdn_atm_ratio,              &
                                     Cdn_ocn     , Cdn_ocn_skin, &
                                     Cdn_ocn_floe, Cdn_ocn_keel, &
@@ -2050,8 +2065,9 @@
                                     sss         , Tf          , &
                                     strocnxT    , strocnyT    , &
                                     fbot        ,               &
-                                    Tbot        , Tsnice       , &
+                                    Tbot        , Tsnice      , &
                                     frzmlt      , rside       , &
+                                    fside       ,               &
                                     fsnow       , frain       , &
                                     fpond       ,               &
                                     fsurf       , fsurfn      , &
@@ -2071,6 +2087,10 @@
                                     flatn_f     , fsensn_f    , &
                                     fsurfn_f    , fcondtopn_f , &
                                     faero_atm   , faero_ocn   , &
+                                    fiso_atm    , fiso_ocn    , &
+                                    fiso_evap   , &
+                                    HDO_ocn     , H2_16O_ocn  , &
+                                    H2_18O_ocn  ,  &
                                     dhsn        , ffracn      , &
                                     meltt       , melttn      , &
                                     meltb       , meltbn      , &
@@ -2085,8 +2105,7 @@
       integer (kind=int_kind), intent(in) :: &
          ncat    , & ! number of thickness categories
          nilyr   , & ! number of ice layers
-         nslyr   , & ! number of snow layers
-         n_aero      ! number of aerosol tracers in use
+         nslyr       ! number of snow layers
 
       real (kind=dbl_kind), intent(in) :: &
          dt          , & ! time step
@@ -2163,16 +2182,29 @@
          fbot        , & ! ice-ocean heat flux at bottom surface (W/m^2)
          frzmlt      , & ! freezing/melting potential (W/m^2)
          rside       , & ! fraction of ice that melts laterally
+         fside       , & ! lateral heat flux (W/m^2)
          sst         , & ! sea surface temperature (C)
          Tf          , & ! freezing temperature (C)
          Tbot        , & ! ice bottom surface temperature (deg C)
-         Tsnice       , & ! snow ice interface temperature (deg C)
+         Tsnice      , & ! snow ice interface temperature (deg C)
          sss         , & ! sea surface salinity (ppt)
          meltt       , & ! top ice melt             (m/step-->cm/day)
          melts       , & ! snow melt                (m/step-->cm/day)
          meltb       , & ! basal ice melt           (m/step-->cm/day)
          mlt_onset   , & ! day of year that sfc melting begins
          frz_onset       ! day of year that freezing begins (congel or frazil)
+
+      real (kind=dbl_kind), dimension(:), optional, intent(inout) :: &
+         Qa_iso      , & ! isotope specific humidity (kg/kg)
+         Qref_iso    , & ! isotope 2m atm reference spec humidity (kg/kg)
+         fiso_atm    , & ! isotope deposition rate (kg/m^2 s)
+         fiso_ocn    , & ! isotope flux to ocean  (kg/m^2/s)
+         fiso_evap       ! isotope evaporation (kg/m^2/s)
+
+      real (kind=dbl_kind), optional, intent(in) :: &
+         HDO_ocn     , & ! ocean concentration of HDO (kg/kg)
+         H2_16O_ocn  , & ! ocean concentration of H2_16O (kg/kg)
+         H2_18O_ocn      ! ocean concentration of H2_18O (kg/kg)
 
       real (kind=dbl_kind), dimension(:), intent(inout) :: &
          aicen_init  , & ! fractional area of ice
@@ -2223,6 +2255,11 @@
          aerosno    , &  ! snow aerosol tracer (kg/m^2)
          aeroice         ! ice aerosol tracer (kg/m^2)
 
+      real (kind=dbl_kind), dimension(:,:), optional, intent(inout) :: &
+         isosno     , &  ! snow isotope tracer (kg/m^2)
+         isoice          ! ice isotope tracer (kg/m^2)
+!autodocument_end
+
       ! local variables
 
       integer (kind=int_kind) :: &
@@ -2251,10 +2288,100 @@
          lhcoef      , & ! transfer coefficient for latent heat
          rfrac           ! water fraction retained for melt ponds
 
+      real (kind=dbl_kind), dimension(n_iso) :: &
+         Qrefn_iso  , & ! isotope air sp hum reference level         (kg/kg)
+         fiso_ocnn  , & ! isotope flux to ocean  (kg/m^2/s)
+         fiso_evapn     ! isotope evaporation (kg/m^2/s)
+
+      real (kind=dbl_kind), allocatable, dimension(:,:) :: &
+         l_isosno   , &  ! local snow isotope tracer (kg/m^2)
+         l_isoice        ! local ice isotope tracer (kg/m^2)
+
+      real (kind=dbl_kind), allocatable, dimension(:) :: &
+         l_Qa_iso    , & ! local isotope specific humidity (kg/kg)
+         l_Qref_iso  , & ! local isotope 2m atm reference spec humidity (kg/kg)
+         l_fiso_atm  , & ! local isotope deposition rate (kg/m^2 s)
+         l_fiso_ocn  , & ! local isotope flux to ocean  (kg/m^2/s)
+         l_fiso_evap     ! local isotope evaporation (kg/m^2/s)
+
+      real (kind=dbl_kind)  :: &
+         l_HDO_ocn   , & ! local ocean concentration of HDO (kg/kg)
+         l_H2_16O_ocn, & ! local ocean concentration of H2_16O (kg/kg)
+         l_H2_18O_ocn    ! local ocean concentration of H2_18O (kg/kg)
+
       real (kind=dbl_kind) :: &
          pond            ! water retained in ponds (m)
 
       character(len=*),parameter :: subname='(icepack_step_therm1)'
+
+      !-----------------------------------------------------------------
+      ! allocate local optional arguments
+      !-----------------------------------------------------------------
+
+      if (present(isosno)    ) then
+         allocate(l_isosno(size(isosno,dim=1),size(isosno,dim=2)))
+         l_isosno     = isosno
+      else
+         allocate(l_isosno(1,1))
+         l_isosno     = c0
+      endif
+
+      if (present(isoice)    ) then
+         allocate(l_isoice(size(isoice,dim=1),size(isoice,dim=2)))
+         l_isoice     = isoice
+      else
+         allocate(l_isoice(1,1))
+         l_isoice     = c0
+      endif
+
+      if (present(Qa_iso)    ) then
+         allocate(l_Qa_iso(size(Qa_iso)))
+         l_Qa_iso     = Qa_iso
+      else
+         allocate(l_Qa_iso(1))
+         l_Qa_iso     = c0
+      endif
+
+      if (present(Qref_iso)    ) then
+         allocate(l_Qref_iso(size(Qref_iso)))
+         l_Qref_iso     = Qref_iso
+      else
+         allocate(l_Qref_iso(1))
+         l_Qref_iso     = c0
+      endif
+
+      if (present(fiso_atm)  ) then
+         allocate(l_fiso_atm(size(fiso_atm)))
+         l_fiso_atm = fiso_atm
+      else
+         allocate(l_fiso_atm(1))
+         l_fiso_atm   = c0
+      endif
+
+      if (present(fiso_ocn)  ) then
+         allocate(l_fiso_ocn(size(fiso_ocn)))
+         l_fiso_ocn = fiso_ocn
+      else
+         allocate(l_fiso_ocn(1))
+         l_fiso_ocn   = c0
+      endif
+
+      if (present(fiso_evap)  ) then
+         allocate(l_fiso_evap(size(fiso_evap)))
+         l_fiso_evap = fiso_evap
+      else
+         allocate(l_fiso_evap(1))
+         l_fiso_evap   = c0
+      endif
+
+      l_HDO_ocn    = c0
+      if (present(HDO_ocn)   ) l_HDO_ocn    = HDO_ocn
+
+      l_H2_16O_ocn = c0
+      if (present(H2_16O_ocn)) l_H2_16O_ocn = H2_16O_ocn
+
+      l_H2_18O_ocn = c0
+      if (present(H2_18O_ocn)) l_H2_18O_ocn = H2_18O_ocn
 
       !-----------------------------------------------------------------
       ! Adjust frzmlt to account for ice-ocean heat fluxes since last
@@ -2272,9 +2399,11 @@
                                   fbot_xfer_type,       &
                                   strocnxT,  strocnyT,  &
                                   Tbot,      fbot,      &
-                                  rside,     Cdn_ocn)
+                                  rside,     Cdn_ocn,   &
+                                  fside)
+
       if (icepack_warnings_aborted(subname)) return
-      
+
       !-----------------------------------------------------------------
       ! Update the neutral drag coefficients to account for form drag
       ! Oceanic and atmospheric drag coefficients
@@ -2310,6 +2439,9 @@
 
          Trefn  = c0
          Qrefn  = c0
+         Qrefn_iso(:) = c0
+         fiso_ocnn(:) = c0
+         fiso_evapn(:) = c0
          Urefn  = c0
          lhcoef = c0
          shcoef = c0
@@ -2329,7 +2461,7 @@
       !       components are set to the data values.
       !-----------------------------------------------------------------
 
-               call icepack_atm_boundary( 'ice',                  &
+               call icepack_atm_boundary('ice',                  &
                                         Tsfc(n),  potT,          &
                                         uatm,     vatm,          &
                                         wind,     zlvl,          &
@@ -2340,7 +2472,9 @@
                                         lhcoef,   shcoef,        &
                                         Cdn_atm,                 &
                                         Cdn_atm_ratio_n,         &
-                                        uvel,     vvel,          &
+                                        Qa_iso=l_Qa_iso,           &
+                                        Qref_iso=Qrefn_iso,      &
+                                        uvel=uvel, vvel=vvel,    &
                                         Uref=Urefn)
                if (icepack_warnings_aborted(subname)) return
 
@@ -2453,6 +2587,26 @@
                if (icepack_warnings_aborted(subname)) return
             endif
 
+            if (tr_iso) then
+               call update_isotope (dt = dt, &
+                                    nilyr = nilyr, nslyr = nslyr, &
+                                    meltt = melttn(n),melts = meltsn(n),     &
+                                    meltb = meltbn(n),congel=congeln(n),    &
+                                    snoice=snoicen(n),evap=evapn,         & 
+                                    fsnow=fsnow,      Tsfc=Tsfc(n),       &
+                                    Qref_iso=Qrefn_iso(:),                 &
+                                    isosno=l_isosno(:,n),isoice=l_isoice(:,n), &
+                                    aice_old=aicen_init(n),vice_old=vicen_init(n), &
+                                    vsno_old=vsnon_init(n),                &
+                                    vicen=vicen(n),vsnon=vsnon(n),      &
+                                    aicen=aicen(n),                     &
+                                    fiso_atm=l_fiso_atm(:),                  &
+                                    fiso_evapn=fiso_evapn(:),                &
+                                    fiso_ocnn=fiso_ocnn(:),                 &
+                                    HDO_ocn=l_HDO_ocn,H2_16O_ocn=l_H2_16O_ocn,    &
+                                    H2_18O_ocn=l_H2_18O_ocn)
+               if (icepack_warnings_aborted(subname)) return
+            endif
          endif   ! aicen_init
 
       !-----------------------------------------------------------------
@@ -2554,10 +2708,32 @@
                                meltt,      melts,        &
                                meltb,      congel,       &
                                snoice,                   &
-                               Uref,       Urefn)
+                               Uref=Uref,  Urefn=Urefn,  &
+                               Qref_iso=l_Qref_iso,      &
+                               Qrefn_iso=Qrefn_iso,      &
+                               fiso_ocn=l_fiso_ocn,      &
+                               fiso_ocnn=fiso_ocnn,      &
+                               fiso_evap=l_fiso_evap,    &
+                               fiso_evapn=fiso_evapn)
+
          if (icepack_warnings_aborted(subname)) return
 
       enddo                  ! ncat
+
+      if (present(isosno)   ) isosno   = l_isosno
+      if (present(isoice)   ) isoice   = l_isoice
+      if (present(Qa_iso)   ) Qa_iso   = l_Qa_iso
+      if (present(Qref_iso) ) Qref_iso = l_Qref_iso
+      if (present(fiso_atm) ) fiso_atm = l_fiso_atm
+      if (present(fiso_ocn) ) fiso_ocn = l_fiso_ocn
+      if (present(fiso_evap)) fiso_evap= l_fiso_evap
+      deallocate(l_isosno)
+      deallocate(l_isoice)
+      deallocate(l_Qa_iso)
+      deallocate(l_Qref_iso)
+      deallocate(l_fiso_atm)
+      deallocate(l_fiso_ocn)
+      deallocate(l_fiso_evap)
 
       !-----------------------------------------------------------------
       ! Calculate ponds from the topographic scheme

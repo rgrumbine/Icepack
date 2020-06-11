@@ -18,6 +18,7 @@ The column physics source code contains the following files
 |    **icepack_brine.F90**         evolves the brine height tracer
 |    **icepack_firstyear.F90**     handles most work associated with the first-year ice area tracer
 |    **icepack_flux.F90**          fluxes needed/produced by the model
+|    **icepack_fsd.F90**           supports floe size distribution
 |    **icepack_intfc.F90**         interface routines for linking Icepack with a host sea ice model
 |    **icepack_itd.F90**           utilities for managing ice thickness distribution
 |    **icepack_kinds.F90**         basic definitions of reals, integers, etc.
@@ -38,6 +39,7 @@ The column physics source code contains the following files
 |    **icepack_therm_vertical.F90**  vertical growth rates and fluxes
 |    **icepack_tracers.F90**       tracer information
 |    **icepack_warnings.F90**      utilities for writing warning and error messages
+|    **icepack_wavefracspec.F90**  wave impact on sea ice
 |    **icepack_zbgc.F90**          driver for ice biogeochemistry and brine tracer motion
 |    **icepack_zbgc_shared.F90**   parameters and shared code for biogeochemistry and brine height
 |    **icepack_zsalinity.F90**     vertical salinity parameterization of :cite:`Jeffery11`
@@ -59,238 +61,126 @@ that is passed into the column physics though interfaces.  In fact,
 there are no direct IO capabilities in the column physics.  That is to say, the
 column physics does not open files to read or write.  The column physics is able to write 
 data via several different routines that specifically have a fortran unit number as an input
-argument.  In addition, there is a warning package (see section :ref:`warning`) that
+argument.  In addition, there is a warning and abort package (see section :ref:`aborts`) that
 provides the column package with the ability to store log output.  That output can
 be queried by the host model or it can be written directly via a specific routine.
 The warning package also provides access to an abort flag that the host model can
 query after each call to check for successful completion of the column physics package.
 
 All column physics public interfaces and public data are defined in the **icepack_intfc.F90**
-file.  Internal column physics settings should all be accessible through interfaces.
+file (see section :ref:`calling`).  Internal column physics settings should all be accessible through interfaces.
 The internal constants, parameters, and tracer settings have init (set), query (get), and
 write interfaces that provides access to internal column physics settings.  The host model
 should not have to use "use" statements to access any of the column physics data outside
 of what is provided through the icepack_intfc module.  
 The public column physics interfaces use optional arguments where it makes sense and
-there is an ongoing effort to make more of the interfaces support keyword=value arguments
-for clarity and backwards compatibility.
+there is an ongoing effort to extend the optional arguments supported.  It's strongly recommended
+that calls to the icepack interfaces be done with keyword=value arguments.  All icepack arguments
+support this method.
 
+Overall, columnphysics changes in the Icepack model should include the following
 
-Using Icepack
-------------------------------------
+  * All modules should have the following set at the top
 
-In this section, the various public icepack interfaces will be defined and 
-how to use them will be described.
+    .. code-block:: fortran
 
-.. dev_intfc:
+       implicit none
+       private
 
-Interfaces
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  * Any public module interfaces or data should be explicitly specified
 
-Column physics data and subroutines are made public through the **icepack_intfc.F90**
-file.  That file contains the entire list of data and subroutines needed to
-initialize, setup, and run the column physics package.  That file points
-to other modules within the column physics where the interfaces are located.
+  * All subroutines and functions should define the subname character parameter statement to match the interface name like
 
-Within **icepack_intfc.F90**, internal icepack kinds are defined via the
-icepack_kinds module::
+    .. code-block:: fortran
 
-      use icepack_kinds, only: icepack_char_len  => char_len
-      use icepack_kinds, only: icepack_char_len_long  => char_len_long
-      use icepack_kinds, only: icepack_log_kind  => log_kind
-      use icepack_kinds, only: icepack_int_kind  => int_kind
-      use icepack_kinds, only: icepack_int8_kind => int8_kind
-      use icepack_kinds, only: icepack_real_kind => real_kind
-      use icepack_kinds, only: icepack_dbl_kind  => dbl_kind
-      use icepack_kinds, only: icepack_r16_kind  => r16_kind
+       character(len=*),parameter :: subname='(lateral_melt_bgc)'
 
-icepack_tracers defines a handful of parameters that provide information
-about maximum array sizes for static dimensioning::
+  * All interfaces that are public outside the Icepack columnphysics should include autodocument_start and autodocument_end comment lines with appropriate syntax and location.  If any interfaces are added or updated, then the internal documentation should be updated via
 
-      use icepack_tracers,   only: icepack_max_nbtrcr => max_nbtrcr
-      use icepack_tracers,   only: icepack_max_algae  => max_algae
-      use icepack_tracers,   only: icepack_max_dic    => max_dic
-      use icepack_tracers,   only: icepack_max_doc    => max_doc
-      use icepack_tracers,   only: icepack_max_don    => max_don
-      use icepack_tracers,   only: icepack_max_fe     => max_fe
-      use icepack_tracers,   only: icepack_max_aero   => max_aero
-      use icepack_tracers,   only: icepack_nmodal1    => nmodal1
-      use icepack_tracers,   only: icepack_nmodal2    => nmodal2
-      use icepack_parameters, only: icepack_nspint     => nspint
+    .. code-block:: bash
 
-icepack_parameters provides init, query, write, and recompute methods to
-define constant values and model parameters.  These constants have defaults 
-that the caller can query or reset::
+       ./icepack.setup --docintfc
 
-      use icepack_parameters, only: icepack_init_parameters
-      use icepack_parameters, only: icepack_query_parameters
-      use icepack_parameters, only: icepack_write_parameters
-      use icepack_parameters, only: icepack_recompute_constants
+    See also :ref:`docintfc` for more information about the docintfc option.
 
-icepack_tracers provides init, query, and write methods to
-define various tracer sizes, flags, indices, and numbers.  The
-tracers have some defaults that the caller can query or reset::
+  * The icepack_warnings package should be used to cache log messages and set the abort flag.  To add a log message, use icepack_warnings_add like
 
-      use icepack_tracers, only: icepack_compute_tracers
-      use icepack_tracers, only: icepack_query_tracer_sizes
-      use icepack_tracers, only: icepack_write_tracer_sizes
-      use icepack_tracers, only: icepack_init_tracer_flags
-      use icepack_tracers, only: icepack_query_tracer_flags
-      use icepack_tracers, only: icepack_write_tracer_flags
-      use icepack_tracers, only: icepack_init_tracer_indices
-      use icepack_tracers, only: icepack_query_tracer_indices
-      use icepack_tracers, only: icepack_write_tracer_indices
-      use icepack_tracers, only: icepack_init_tracer_numbers
-      use icepack_tracers, only: icepack_query_tracer_numbers
-      use icepack_tracers, only: icepack_write_tracer_numbers
+    .. code-block:: fortran
 
-icepack_itd provides three public interfaces to compute the ice
-thickness distribution::
+       call icepack_warnings_add(subname//' algorithm did not converge')
 
-      use icepack_itd, only: icepack_init_itd
-      use icepack_itd, only: icepack_init_itd_hist
-      use icepack_itd, only: icepack_aggregate
+    To formally set the abort flag, use
 
-icepack_mechred contains two public interfaces to compute ridging
-and ice strength::
+    .. code-block:: fortran
 
-      use icepack_mechred, only: icepack_step_ridge
-      use icepack_mechred, only: icepack_ice_strength
+       call icepack_warnings_setabort(.true.,__FILE__,__LINE__)
 
-icepack_shortwave provides a routine to initialize the radiation
-computation and an routine to update the radiation computation::
+    See also :ref:`aborts` for more information about how the external calling program will write those message and check whether Icepack aborted.
 
-      use icepack_shortwave, only: icepack_prep_radiation
-      use icepack_shortwave, only: icepack_step_radiation
+  * Every interface call within the columnphysics should be followed by
 
-icepack_brine address brine and zsalinity computations::
+    .. code-block:: fortran
 
-      use icepack_brine, only: icepack_init_hbrine
-      use icepack_brine, only: icepack_init_zsalinity
+       if (icepack_warnings_aborted(subname)) return
 
-icepack_zbgc contains several public interfaces to support initialization
-and computation for the skeletal layer bgc and zbgc options::
+    to support errors backing up the call tree to the external program
 
-      use icepack_zbgc , only: icepack_init_bgc
-      use icepack_zbgc , only: icepack_init_zbgc
-      use icepack_zbgc , only: icepack_biogeochemistry
-      use icepack_zbgc , only: icepack_init_OceanConcArray
-      use icepack_zbgc , only: icepack_init_ocean_conc
+  * Variables defined in icepack_kinds, icepack_tracers, icepack_parameters, and icepack_orbital should be accessed within Icepack by Fortran use statements.  It's also possible to access some of those variables thru methods that query for the value, but this tends to be a little more cumbersome, so Fortran use statements are recommended within columnphysics.  From the icepack driver or other external programs, the columnphysics variables should ALWAYS be access thru the interface methods and icepack_intfc (see also :ref:`calling`).
 
-There are a couple of routines to support computation of an atmosphere
-and ocean interaction::
+  * Optional arguments are encouraged in the public Icepack interfaces but should generally be avoided in interfaces within the columnphysics.  There are several reasons for taking this approach.  There is a desire to support backwards compatible Icepack public interfaces as much as possible, so optional arguments will be used for some future extensions.  There is also a desire to allow users to pass only the data thru the Icepack interfaces that is needed.  To support optional tracers and features, optional arguments are needed.  Within the internal columnphysics calling tree, optional arguments are discouraged because they tend to add complexity to deep calling trees and often lead to implementations with many calls to the same interface that only vary by which arguments are passed.  In the long term, that approach is not sustainable.  As a result, a scheme has been developed to support optional arguments in the public interfaces while minimizing optional arguments within the columphysics.  Within the columnphysics, we suggest optional arguments available thru the public interfaces should generally be treated as follows
 
-      use icepack_atmo , only: icepack_atm_boundary
-      use icepack_ocean, only: icepack_ocn_mixed_layer
+    * Check whether optional arguments are passed and create temporary data to store the values
 
-icepack_step_therm1 and icepack_step_therm2 compute the ice
-thermodynamics in two steps::
+    * The temporary data should be locally name l_${argument_name}
 
-      use icepack_therm_vertical, only: icepack_step_therm1
-      use icepack_therm_itd     , only: icepack_step_therm2
+    * The temporary data should be allocated at runtime if it's not a scalar based on the size of the incoming argument
 
-icepack_therm_shared provides several methods to compute different
-internal terms::
+    * The optional argument values should be copied into the temporary data
 
-      use icepack_therm_shared  , only: icepack_ice_temperature
-      use icepack_therm_shared  , only: icepack_snow_temperature
-      use icepack_therm_shared  , only: icepack_liquidus_temperature
-      use icepack_therm_shared  , only: icepack_sea_freezing_temperature
-      use icepack_therm_shared  , only: icepack_enthalpy_snow
-      use icepack_therm_shared  , only: icepack_init_thermo
-      use icepack_therm_shared  , only: icepack_init_trcr
+    * The temporary data should be passed thru other columnphysics subroutines
 
-icepack_orbital provides a routine to set orbital parameters needed
-for some albedo computations::
+    * The temporary data should be deallocated at the end of the method if it was allocated
 
-      use icepack_orbital , only: icepack_init_orbit
+    * The temporary data should be copied back to the argument if the argument intent is out or inout
 
-icepack_warnings provides several methods for getting, writing,
-and clearing messages.  There is also a function that returns
-a logical flag indicating whether the column physics has aborted::
+    * If optional arguments are not passed, temporary data should be created of size 1 with values of c0, and they should be passed thru other columnphysics subroutines
 
-      use icepack_warnings, only: icepack_warnings_clear
-      use icepack_warnings, only: icepack_warnings_getall
-      use icepack_warnings, only: icepack_warnings_print
-      use icepack_warnings, only: icepack_warnings_flush
-      use icepack_warnings, only: icepack_warnings_aborted
+    * A logical can be instantiated and passed down the columnphysics interface to manage any logic related to whether valid or fake data is being passed down the calling tree.  See **closing_flag** and **iso_flag** within the columnphysics as examples.  There may also be externally set logicals that can be used to control how the optional features are handles.  See **tr_iso** within the columnphysics as an example.
 
-icepack_configure is a standalone icepack method that should always be called
-first::
+    * An example of how this might look is
 
-      public :: icepack_configure
+      .. code-block:: fortran
 
+         subroutine icepack_example_interface(arg1, arg2, ...)
+         real (kind=dbl_kind), intent(inout) :: arg1
+         real (kind=dbl_kind), optional, dimension(:), intent(inout) :: arg2
+         !
+         real (kind=dbl_kind), allocatable, dimension(:) :: l_arg2
+         logical :: arg2_flag
 
-Calling Sequence
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+         character(len=*), parameter :: subname = '(icepack_example_interface)'
 
-The calling sequence required to setup and run the column physics is generally
-described below.  Several steps may be needed to be taken by the host between
-icepack calls in order to support the icepack interfaces.  
-The icepack driver and the CICE model provide working examples
-of how to do this in practice.  The sample below does not include bgc.
+         if (present(arg2)) then
+            arg2_flag = .true.
+            allocate(l_arg2(size(arg2)))
+            l_arg2 = arg2
+         else
+            arg2_flag = .false.
+            allocate(l_arg2(1))
+            l_arg2 = c0
+         endif
 
-start driver
+         ...
 
-* call *icepack_configure*
+         call some_columnphysics_subroutine(arg1, l_arg2, arg2_flag, ...)
 
-initialize driver and read in driver namelist
+         ...
 
-* call *icepack_init_parameters*
-* call *icepack_init_tracers_*
-* call *icepack_init_trcr*
-* call *icepack_init_thermo*
-* call *icepack_init_itd*
-* call *icepack_init_itd_hist*
-* call *icepack_step_radiation*
-* call *icepack_init_zsalinity*
-* call *icepack_init_hbrine*
-* call *icepack_aggregate*
+         if (present(arg2)) then
+            arg2 = l_arg2
+         endif
+         deallocate(l_arg2)
 
-loop over timesteps
-loop over gridcells
+         return
+         end subroutine
 
-* call *icepack_prep_radiation*
-* call *icepack_step_therm1*
-* call *icepack_step_therm2*
-* call *icepack_aggregate*
-* call *icepack_step_ridge*
-* call *icepack_step_radiation*
-* call *icepack_atm_boundary*
-* call *icepack_ocn_mixed_layer*
-
-end loop over gridcells
-end loop over timesteps
-
-end driver
-
-.. _warning:
-
-The Warning Package
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Icepack has no IO capabilities.  It does not have direct knowledge of
-any input or output files.  However, it can write output through specific
-interfaces that pass in a fortran file unit number.  There are several 
-methods in icepack that support writing data to a file this way including
-the various *icepack_write_* interfaces.
-
-Separately, the icepack warning package is where icepack stores internal output and
-error messages not directly set in the various write routines.  The warning package
-also contains an *icepack_warnings_aborted* function that will be set to true 
-if icepack detects an abort.  In that case, icepack will return to the driver.
-As a general rule, after each call to icepack, the driver should call::
-
-      call icepack_warnings_flush(nu_diag)
-      if (icepack_warnings_aborted()) call icedrv_system_abort(string=subname, &
-          file=__FILE__, line=__LINE__)
-
-to flush (print and clear) the icepack warning buffer and to check whether icepack 
-aborted.  If icepack aborts, it's actually up to the driver to cleanly shut the
-model down.
-
-Alternatively, *icepack_warnings_getall* provides the saved icepack messages to
-the driver via an array of strings in the argument list.  This allows the driver
-to reformat that output as needed.  *icepack_warnings_print*
-writes out the messages but does not clear them, and *icepack_warnings_clear* zeros
-out the icepack warning messages.
