@@ -24,18 +24,18 @@
       use icepack_parameters, only: p001, p1, p333, p5, p666, puny, bignum
       use icepack_parameters, only: rhos, rhoi, Lfresh, ice_ref_salinity
       use icepack_parameters, only: phi_init, dsin0_frazil, hs_ssl, salt_loss
-      use icepack_parameters, only: rhosi
+      use icepack_parameters, only: rhosi, conserv_check
       use icepack_parameters, only: kitd, ktherm, heat_capacity
       use icepack_parameters, only: z_tracers, solve_zsal
 
       use icepack_tracers, only: ntrcr, nbtrcr
       use icepack_tracers, only: nt_qice, nt_qsno, nt_fbri, nt_sice
-      use icepack_tracers, only: nt_apnd, nt_hpnd, nt_aero
+      use icepack_tracers, only: nt_apnd, nt_hpnd, nt_aero, nt_isosno, nt_isoice
       use icepack_tracers, only: nt_Tsfc, nt_iage, nt_FY, nt_fsd
       use icepack_tracers, only: nt_alvl, nt_vlvl
       use icepack_tracers, only: tr_pond_cesm, tr_pond_lvl, tr_pond_topo
-      use icepack_tracers, only: tr_iage, tr_FY, tr_lvl, tr_aero, tr_brine, tr_fsd
-      use icepack_tracers, only: n_aero
+      use icepack_tracers, only: tr_iage, tr_FY, tr_lvl, tr_aero, tr_iso, tr_brine, tr_fsd
+      use icepack_tracers, only: n_aero, n_iso
       use icepack_tracers, only: bio_index
 
       use icepack_warnings, only: warnstr, icepack_warnings_add
@@ -45,6 +45,7 @@
       use icepack_itd, only: reduce_area, cleanup_itd
       use icepack_itd, only: aggregate_area, shift_ice
       use icepack_itd, only: column_sum, column_conservation_check
+      use icepack_isotope, only: isoice_alpha, isotope_frac_method
       use icepack_mushy_physics, only: liquidus_temperature_mush, enthalpy_mush
       use icepack_therm_shared, only: hfrazilmin
       use icepack_therm_shared, only: hi_min
@@ -58,10 +59,6 @@
                 add_new_ice, &
                 lateral_melt, &
                 icepack_step_therm2
-
-      logical (kind=log_kind), parameter, public :: &
-         l_conservation_check = .false.   ! if true, check conservation
-                                          ! (useful for debugging)
 
 !=======================================================================
 
@@ -220,7 +217,7 @@
       !  conserve.
       !-----------------------------------------------------------------
 
-      if (l_conservation_check) then
+      if (conserv_check) then
 
       do n = 1, ncat
 
@@ -263,7 +260,7 @@
       call column_sum (ncat, vbrin, vbri_init)
       if (icepack_warnings_aborted(subname)) return
 
-      endif ! l_conservation_check
+      endif ! conserv_check
 
       !-----------------------------------------------------------------
       ! Initialize remapping flag.
@@ -607,7 +604,7 @@
       ! Check volume and energy conservation.
       !-----------------------------------------------------------------
 
-      if (l_conservation_check) then
+      if (conserv_check) then
 
       do n = 1, ncat
 
@@ -650,32 +647,32 @@
       call column_sum (ncat, vbrin, vbri_final)
       if (icepack_warnings_aborted(subname)) return
 
-      fieldid = 'vice, ITD remap'
+      fieldid = subname//':vice'
       call column_conservation_check (fieldid,               &
                                       vice_init, vice_final, &
                                       puny)
       if (icepack_warnings_aborted(subname)) return
-      fieldid = 'vsno, ITD remap'
+      fieldid = subname//':vsno'
       call column_conservation_check (fieldid,               &
                                       vsno_init, vsno_final, &
                                       puny)
       if (icepack_warnings_aborted(subname)) return
-      fieldid = 'eice, ITD remap'
+      fieldid = subname//':eice'
       call column_conservation_check (fieldid,               &
                                       eice_init, eice_final, &
                                       puny*Lfresh*rhoi)
       if (icepack_warnings_aborted(subname)) return
-      fieldid = 'esno, ITD remap'
+      fieldid = subname//':esno'
       call column_conservation_check (fieldid,               &
                                       esno_init, esno_final, &
                                       puny*Lfresh*rhos)
       if (icepack_warnings_aborted(subname)) return
-      fieldid = 'sicen, ITD remap'
+      fieldid = subname//':sicen'
       call column_conservation_check (fieldid,               &
                                       sice_init, sice_final, &
                                       puny)
       if (icepack_warnings_aborted(subname)) return
-      fieldid = 'vbrin, ITD remap'
+      fieldid = subname//':vbrin'
       call column_conservation_check (fieldid,               &
                                       vbri_init, vbri_final, &
                                       puny*c10)
@@ -853,9 +850,11 @@
 !
       subroutine lateral_melt (dt,         ncat,       &
                                nilyr,      nslyr,      &
-                               n_aero,     fpond,      &
+                               n_aero,     &
+                               fpond,      &
                                fresh,      fsalt,      &
                                fhocn,      faero_ocn,  &
+                               fiso_ocn,               &
                                rside,      meltl,      &
                                fside,      sss,        &
                                aicen,      vicen,      &
@@ -910,6 +909,9 @@
 
       real (kind=dbl_kind), dimension(:), intent(inout) :: &
          faero_ocn     ! aerosol flux to ocean (kg/m^2/s)
+
+      real (kind=dbl_kind), dimension(:), intent(inout) :: &
+         fiso_ocn     ! isotope flux to ocean (kg/m^2/s)
 
       ! local variables
 
@@ -1167,6 +1169,15 @@
                enddo ! k
             endif    ! tr_aero
 
+            if (tr_iso) then
+               do k = 1, n_iso
+                  fiso_ocn(k) = fiso_ocn(k) &
+                              + (vsnon(n)*trcrn(nt_isosno+k-1,n) &
+                              +  vicen(n)*trcrn(nt_isoice+k-1,n)) &
+                              * rside / dt
+               enddo ! k
+            endif    ! tr_iso
+
       !-----------------------------------------------------------------
       ! Biogeochemistry
       !-----------------------------------------------------------------     
@@ -1251,6 +1262,9 @@
                               nbtrcr,    flux_bio,   &
                               ocean_bio, fzsal,      &
                               frazil_diag,           &
+                              fiso_ocn,              &
+                              HDO_ocn, H2_16O_ocn,   &
+                              H2_18O_ocn,            &
                               wave_sig_ht,           &
                               wave_spectrum,         &
                               wavefreq,              &
@@ -1336,6 +1350,16 @@
       real (kind=dbl_kind),  intent(inout) :: &
          fzsal      ! salt flux to ocean from zsalinity (kg/m^2/s)
 
+      ! water isotopes
+
+      real (kind=dbl_kind), dimension(:), intent(inout) :: &
+         fiso_ocn       ! isotope flux to ocean  (kg/m^2/s)
+
+      real (kind=dbl_kind), intent(in) :: &
+         HDO_ocn    , & ! ocean concentration of HDO (kg/kg)
+         H2_16O_ocn , & ! ocean concentration of H2_16O (kg/kg)
+         H2_18O_ocn     ! ocean concentration of H2_18O (kg/kg)
+
       ! floe size distribution
       real (kind=dbl_kind), intent(in) :: &
          wave_sig_ht    ! significant height of waves globally (m)
@@ -1392,6 +1416,8 @@
          vice_init, vice_final, & ! ice volume summed over categories
          eice_init, eice_final    ! ice energy summed over categories
 
+      real (kind=dbl_kind) :: frazil_conc
+
       real (kind=dbl_kind), dimension (nilyr) :: &
          Sprofile         ! salinity profile used for new ice additions
 
@@ -1441,6 +1467,7 @@
       d_an_latg(:) = c0
       d_an_tot(:) = c0
       d_an_newi(:) = c0
+      vin0new(:) = c0
 
       if (tr_fsd) then
           d_afsd_latg(:) = c0    ! diagnostics
@@ -1474,7 +1501,7 @@
          endif
       enddo
 
-      if (l_conservation_check) then
+      if (conserv_check) then
 
          do n = 1, ncat
          do k = 1, nilyr
@@ -1487,7 +1514,7 @@
          call column_sum (ncat, eicen, eice_init)
          if (icepack_warnings_aborted(subname)) return
 
-      endif ! l_conservation_check
+      endif ! conserv_check
 
       !-----------------------------------------------------------------
       ! Compute average enthalpy of new ice.
@@ -1524,7 +1551,7 @@
       vi0_init = vi0new          ! for bgc
 
       ! increment ice volume and energy
-      if (l_conservation_check) then
+      if (conserv_check) then
          vice_init = vice_init + vi0new
          eice_init = eice_init + vi0new*qi0new
       endif
@@ -1609,7 +1636,6 @@
          endif               ! aice0 > puny
 
          ! volume added to each category from lateral growth
-         vin0new(:) = c0
          do n = 1, ncat
             if (aicen(n) > c0) vin0new(n) = d_an_latg(n) * vicen(n)/aicen(n)
          end do
@@ -1664,6 +1690,27 @@
                   trcrn(nt_aero+3+4*(it-1),n) = &
                   trcrn(nt_aero+3+4*(it-1),n)*vicen(n) / vtmp
                enddo
+            endif
+
+           frazil_conc = c0
+           if (tr_iso .and. vtmp > puny) then
+             do it=1,n_iso
+               if (it==1)   &
+                  frazil_conc = isoice_alpha(c0,'HDO'   ,isotope_frac_method)*HDO_ocn
+               if (it==2)   &
+                  frazil_conc = isoice_alpha(c0,'H2_16O',isotope_frac_method)*H2_16O_ocn
+               if (it==3)   &
+                  frazil_conc = isoice_alpha(c0,'H2_18O',isotope_frac_method)*H2_18O_ocn
+
+               ! dilution and uptake in the ice
+               trcrn(nt_isoice+it-1,n)  &
+                   = (trcrn(nt_isoice+it-1,n)*vicen(n) &
+                   + frazil_conc*rhoi*vsurp) &
+                   / vtmp
+
+               fiso_ocn(it) = fiso_ocn(it) &
+                            - frazil_conc*rhoi*vsurp/dt
+             enddo
             endif
 
             ! update category volumes
@@ -1767,6 +1814,25 @@
                enddo
             endif
 
+           frazil_conc = c0
+           if (tr_iso) then
+              do it=1,n_iso
+               if (it==1)   &
+                  frazil_conc = isoice_alpha(c0,'HDO'   ,isotope_frac_method)*HDO_ocn
+               if (it==2)   &
+                  frazil_conc = isoice_alpha(c0,'H2_16O',isotope_frac_method)*H2_16O_ocn
+               if (it==3)   &
+                  frazil_conc = isoice_alpha(c0,'H2_18O',isotope_frac_method)*H2_18O_ocn
+
+                trcrn(nt_isoice+it-1,1) &
+                  = (trcrn(nt_isoice+it-1,1)*vice1) &
+                  + frazil_conc*rhoi*vi0new/vicen(1)
+
+                fiso_ocn(it) = fiso_ocn(it) &
+                             - frazil_conc*rhoi*vi0new/dt
+              enddo
+           endif
+
             if (tr_lvl) then
                 alvl = trcrn(nt_alvl,n)
                 trcrn(nt_alvl,n) = &
@@ -1803,7 +1869,7 @@
 
       enddo ! ncats
 
-      if (l_conservation_check) then
+      if (conserv_check) then
 
          do n = 1, ncat
             eicen(n) = c0
@@ -1817,18 +1883,18 @@
          call column_sum (ncat, eicen, eice_final)
          if (icepack_warnings_aborted(subname)) return
 
-         fieldid = 'vice, add_new_ice'
+         fieldid = subname//':vice'
          call column_conservation_check (fieldid,               &
                                          vice_init, vice_final, &
                                          puny)
          if (icepack_warnings_aborted(subname)) return
-         fieldid = 'eice, add_new_ice'
+         fieldid = subname//':eice'
          call column_conservation_check (fieldid,               &
                                          eice_init, eice_final, &
                                          puny*Lfresh*rhoi)
          if (icepack_warnings_aborted(subname)) return
 
-      endif ! l_conservation_check
+      endif ! conserv_check
 
       !-----------------------------------------------------------------
       ! Biogeochemistry
@@ -1841,8 +1907,7 @@
                               aicen,      vicen,      vsnon1,   &
                               vi0new,     ntrcr,      trcrn,    &
                               nbtrcr,     sss,        ocean_bio,&
-                              flux_bio,   hsurp,                &
-                              l_conservation_check)
+                              flux_bio,   hsurp)
          if (icepack_warnings_aborted(subname)) return
 
       end subroutine add_new_ice
@@ -1880,6 +1945,8 @@
                                      flux_bio,     ocean_bio,     &
                                      frazil_diag,                 &
                                      frz_onset,    yday,          &
+                                     fiso_ocn,     HDO_ocn,       &
+                                     H2_16O_ocn,   H2_18O_ocn,    &
                                      nfsd,         wave_sig_ht,   &
                                      wave_spectrum,               &
                                      wavefreq,                    &
@@ -1987,10 +2054,46 @@
       real (kind=dbl_kind), intent(in), optional :: &
          yday         ! day of year
 
+      ! water isotopes
+      real (kind=dbl_kind), dimension(:), optional, intent(inout) :: &
+         fiso_ocn       ! isotope flux to ocean  (kg/m^2/s)
+
+      real (kind=dbl_kind), optional, intent(in) :: &
+         HDO_ocn    , & ! ocean concentration of HDO (kg/kg)
+         H2_16O_ocn , & ! ocean concentration of H2_16O (kg/kg)
+         H2_18O_ocn     ! ocean concentration of H2_18O (kg/kg)
 !autodocument_end
+
+      ! local variables
+
+      ! water isotopes
+      real (kind=dbl_kind), dimension(:), allocatable :: &
+         l_fiso_ocn       ! local isotope flux to ocean  (kg/m^2/s)
+
+      real (kind=dbl_kind) :: &
+         l_HDO_ocn    , & ! local ocean concentration of HDO (kg/kg)
+         l_H2_16O_ocn , & ! local ocean concentration of H2_16O (kg/kg)
+         l_H2_18O_ocn     ! local ocean concentration of H2_18O (kg/kg)
 
       character(len=*),parameter :: subname='(icepack_step_therm2)'
 
+      !-----------------------------------------------------------------
+      ! Check optional arguments and set local values
+      !-----------------------------------------------------------------
+
+      if (present(fiso_ocn)) then
+         allocate(l_fiso_ocn(size(fiso_ocn)))
+         l_fiso_ocn(:) = fiso_ocn(:)
+      else
+         allocate(l_fiso_ocn(1))
+         l_fiso_ocn(:) = c0
+      endif
+      l_HDO_ocn = c0
+      l_H2_16O_ocn = c0
+      l_H2_18O_ocn = c0
+      if (present(HDO_ocn)   ) l_HDO_ocn    = HDO_ocn
+      if (present(H2_16O_ocn)) l_H2_16O_ocn = H2_16O_ocn
+      if (present(H2_18O_ocn)) l_H2_18O_ocn = H2_18O_ocn
 
       !-----------------------------------------------------------------
       ! Let rain drain through to the ocean.
@@ -2067,12 +2170,15 @@
                            cgrid,         igrid,        &
                            nbtrcr,        flux_bio,     &
                            ocean_bio,     fzsal,        &
-                           frazil_diag,                 &
+                           frazil_diag,   l_fiso_ocn,   &
+                           l_HDO_ocn,     l_H2_16O_ocn, &
+                           l_H2_18O_ocn,                &
                            wave_sig_ht,                 &
                            wave_spectrum,               &
                            wavefreq,      dwavefreq,    &
                            d_afsd_latg,   d_afsd_newi,  &
                            floe_rad_c, floe_binwidth)
+
          if (icepack_warnings_aborted(subname)) return
 
       !-----------------------------------------------------------------
@@ -2084,6 +2190,7 @@
                          n_aero,    fpond,         &
                          fresh,     fsalt,         &
                          fhocn,     faero_ocn,     &
+                         l_fiso_ocn,               &
                          rside,     meltl,         &
                          fside,     sss,           &
                          aicen,     vicen,         &
@@ -2135,9 +2242,14 @@
                         n_trcr_strata,        nt_strata,        &
                         fpond,                fresh,            &
                         fsalt,                fhocn,            &
-                        faero_ocn,            fzsal,            &
-                        flux_bio)   
+                        faero_ocn,            l_fiso_ocn,       &
+                        fzsal,                flux_bio)   
       if (icepack_warnings_aborted(subname)) return
+
+      if (present(fiso_ocn)) then
+         fiso_ocn(:) = l_fiso_ocn(:)
+      endif
+      deallocate(l_fiso_ocn)
 
       end subroutine icepack_step_therm2
 
