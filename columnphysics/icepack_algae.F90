@@ -1391,14 +1391,14 @@
          enddo        ! k
       enddo        ! m   
    
-!debug 770 format (I6,D16.6)        
-!debug 781 format (I6,I6,I6)
-!debug 790 format (I6,I6)
-!debug 791 format (f24.17)
-!debug 792 format (2D16.6)
-!debug 793 format (3D16.6)
-!debug 794 format (4D15.5)
-!debug 800 format (F10.4)
+770 format (I6,D16.6)        
+781 format (I6,I6,I6)
+790 format (I6,I6)
+791 format (f24.17)
+792 format (2D16.6)
+793 format (3D16.6)
+794 format (4D15.5)
+800 format (F10.4)
 
       end subroutine z_biogeochemistry
 
