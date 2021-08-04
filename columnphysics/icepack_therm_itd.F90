@@ -26,7 +26,7 @@
       use icepack_parameters, only: phi_init, dsin0_frazil, hs_ssl, salt_loss
       use icepack_parameters, only: rhosi, conserv_check
       use icepack_parameters, only: kitd, ktherm, heat_capacity
-      use icepack_parameters, only: z_tracers, solve_zsal
+      use icepack_parameters, only: z_tracers, solve_zsal, hfrazilmin
 
       use icepack_tracers, only: ntrcr, nbtrcr
       use icepack_tracers, only: nt_qice, nt_qsno, nt_fbri, nt_sice
@@ -47,7 +47,6 @@
       use icepack_itd, only: column_sum, column_conservation_check
       use icepack_isotope, only: isoice_alpha, isotope_frac_method
       use icepack_mushy_physics, only: liquidus_temperature_mush, enthalpy_mush
-      use icepack_therm_shared, only: hfrazilmin
       use icepack_therm_shared, only: hi_min
       use icepack_zbgc, only: add_new_ice_bgc
       use icepack_zbgc, only: lateral_melt_bgc               
@@ -306,11 +305,24 @@
 
          if (hicen_init(n)   > puny .and. &
              hicen_init(n+1) > puny) then
-             ! interpolate between adjacent category growth rates
-             slope = (dhicen(n+1) - dhicen(n)) / &
+
+            if ((hicen_init(n+1) - hicen_init(n))>0) then
+
+              ! interpolate between adjacent category growth rates
+              slope = (dhicen(n+1) - dhicen(n)) / &
                  (hicen_init(n+1) - hicen_init(n))
-             hbnew(n) = hin_max(n) + dhicen(n) &
+              hbnew(n) = hin_max(n) + dhicen(n) &
                       + slope * (hin_max(n) - hicen_init(n))
+
+            else
+
+              write(warnstr,*) subname, &
+                 'ITD Thermodynamics: hicen_init(n+1) <= hicen_init(n)'
+              call icepack_warnings_setabort(.true.)
+              call icepack_warnings_add(warnstr)
+
+            endif
+
          elseif (hicen_init(n) > puny) then ! hicen_init(n+1)=0
              hbnew(n) = hin_max(n) + dhicen(n)
          elseif (hicen_init(n+1) > puny) then ! hicen_init(n)=0
