@@ -96,6 +96,7 @@
 !-----------------------------------------------------------------------
 
       real (kind=dbl_kind), public :: &
+         hfrazilmin = 0.05_dbl_kind   ,&! min thickness of new frazil ice (m)
          cp_ice    = 2106._dbl_kind   ,&! specific heat of fresh ice (J/kg/K)
          cp_ocn    = 4218._dbl_kind   ,&! specific heat of ocn    (J/kg/K)
                                         ! freshwater value needed for enthalpy
@@ -132,7 +133,6 @@
          phi_c_slow_mode   =    0.05_dbl_kind,&! critical liquid fraction porosity cutoff
          phi_i_mushy       =    0.85_dbl_kind  ! liquid fraction of congelation ice
 
-
       integer (kind=int_kind), public :: &
          ktherm = 1      ! type of thermodynamics
                          ! 0 = 0-layer approximation
@@ -167,7 +167,7 @@
 
       real (kind=dbl_kind), public :: &
          ! (Briegleb JGR 97 11475-11485  July 1992)
-         emissivity = 0.95_dbl_kind ,&! emissivity of snow and ice
+         emissivity = 0.985_dbl_kind,&! emissivity of snow and ice
          albocn     = 0.06_dbl_kind ,&! ocean albedo
          vonkar     = 0.4_dbl_kind  ,&! von Karman constant
          stefan_boltzmann = 567.0e-10_dbl_kind,&!  W/m^2/K^4
@@ -224,9 +224,14 @@
          Cstar    = 20._dbl_kind     ,&! constant in Hibler strength formula
                                        ! (kstrength = 0)
          dragio   = 0.00536_dbl_kind ,&! ice-ocn drag coefficient
+         thickness_ocn_layer1 = 2.0_dbl_kind,&! thickness of first ocean level (m)
+         iceruf_ocn = 0.03_dbl_kind  ,&! under-ice roughness (m)
          gravit   = 9.80616_dbl_kind ,&! gravitational acceleration (m/s^2)
          mu_rdg = 3.0_dbl_kind ! e-folding scale of ridged ice, krdg_partic=1 (m^0.5)
                                        ! (krdg_redist = 1)
+
+      logical (kind=log_kind), public :: &
+         calc_dragio     = .false.     ! if true, calculate dragio from iceruf_ocn and thickness_ocn_layer1
 
 !-----------------------------------------------------------------------
 ! Parameters for atmosphere
@@ -278,7 +283,10 @@
          nfreq = 25                   ! number of frequencies
 
       real (kind=dbl_kind), public :: &
-         floeshape = 0.666_dbl_kind   ! constant from Steele (unitless)
+         floeshape = 0.66_dbl_kind    ! constant from Steele (unitless)
+
+      real (kind=dbl_kind), public :: &
+         floediam  = 300.0_dbl_kind   ! effective floe diameter for lateral melt (m)
 
       logical (kind=log_kind), public :: &
          wave_spec = .false.          ! if true, use wave forcing
@@ -355,6 +363,18 @@
          t_sk_conv    = 3.0_dbl_kind    , & ! Stefels conversion time (d)
          t_sk_ox      = 10.0_dbl_kind       ! DMS oxidation time (d)
 
+
+!-----------------------------------------------------------------------
+! Parameters for shortwave redistribution
+!-----------------------------------------------------------------------
+
+      logical (kind=log_kind), public :: &
+         sw_redist     = .false.
+
+      real (kind=dbl_kind), public :: & 
+         sw_frac      = 0.9_dbl_kind    , & ! Fraction of internal shortwave moved to surface
+         sw_dtemp     = 0.02_dbl_kind       ! temperature difference from melting
+
 !=======================================================================
 
       contains
@@ -367,8 +387,8 @@
       subroutine icepack_init_parameters(   &
          puny_in, bignum_in, pi_in, secday_in, &
          rhos_in, rhoi_in, rhow_in, cp_air_in, emissivity_in, &
-         cp_ice_in, cp_ocn_in, &
-         depressT_in, dragio_in, albocn_in, gravit_in, viscosity_dyn_in, &
+         cp_ice_in, cp_ocn_in, hfrazilmin_in, floediam_in, &
+         depressT_in, dragio_in, thickness_ocn_layer1_in, iceruf_ocn_in, albocn_in, gravit_in, viscosity_dyn_in, &
          Tocnfrz_in, rhofresh_in, zvir_in, vonkar_in, cp_wv_in, &
          stefan_boltzmann_in, ice_ref_salinity_in, &
          Tffresh_in, Lsub_in, Lvap_in, Timelt_in, Tsmelt_in, &
@@ -388,7 +408,7 @@
          ahmax_in, R_ice_in, R_pnd_in, R_snw_in, dT_mlt_in, rsnw_mlt_in, &
          kalg_in, kstrength_in, krdg_partic_in, krdg_redist_in, mu_rdg_in, &
          atmbndy_in, calc_strair_in, formdrag_in, highfreq_in, natmiter_in, &
-         atmiter_conv_in, &
+         atmiter_conv_in, calc_dragio_in, &
          tfrz_option_in, kitd_in, kcatbound_in, hs0_in, frzpnd_in, &
          floeshape_in, wave_spec_in, wave_spec_type_in, nfreq_in, &
          dpscale_in, rfracmin_in, rfracmax_in, pndaspect_in, hs1_in, hp1_in, &
@@ -400,7 +420,8 @@
          op_dep_min_in, fr_graze_s_in, fr_graze_e_in, fr_mort2min_in, &
          fr_dFe_in, k_nitrif_in, t_iron_conv_in, max_loss_in, &
          max_dfe_doc1_in, fr_resp_s_in, conserv_check_in, &
-         y_sk_DMS_in, t_sk_conv_in, t_sk_ox_in, frazil_scav_in)
+         y_sk_DMS_in, t_sk_conv_in, t_sk_ox_in, frazil_scav_in, &
+         sw_redist_in, sw_frac_in, sw_dtemp_in)
 
       !-----------------------------------------------------------------
       ! parameter constants
@@ -428,6 +449,8 @@
 !-----------------------------------------------------------------------
 
       real (kind=dbl_kind), intent(in), optional :: &
+         floediam_in,   & ! effective floe diameter for lateral melt (m)
+         hfrazilmin_in, & ! min thickness of new frazil ice (m)
          cp_ice_in,     & ! specific heat of fresh ice (J/kg/K)
          cp_ocn_in,     & ! specific heat of ocn    (J/kg/K)
          depressT_in,   & ! Tf:brine salinity ratio (C/ppt)
@@ -527,6 +550,13 @@
          rsnw_mlt_in , & ! maximum melting snow grain radius (10^-6 m)
          kalg_in         ! algae absorption coefficient for 0.5 m thick layer
 
+      logical (kind=log_kind), intent(in), optional :: &
+         sw_redist_in    ! redistribute shortwave
+
+      real (kind=dbl_kind), intent(in), optional :: & 
+         sw_frac_in  , & ! Fraction of internal shortwave moved to surface
+         sw_dtemp_in     ! temperature difference from melting
+
 !-----------------------------------------------------------------------
 ! Parameters for dynamics
 !-----------------------------------------------------------------------
@@ -536,6 +566,8 @@
          Pstar_in,      & ! constant in Hibler strength formula 
          Cstar_in,      & ! constant in Hibler strength formula 
          dragio_in,     & ! ice-ocn drag coefficient
+         thickness_ocn_layer1_in, & ! thickness of first ocean level (m)
+         iceruf_ocn_in, & ! under-ice roughness (m)
          gravit_in,     & ! gravitational acceleration (m/s^2)
          iceruf_in        ! ice surface roughness (m)
 
@@ -550,6 +582,9 @@
       real (kind=dbl_kind), intent(in), optional :: &  
          mu_rdg_in         ! gives e-folding scale of ridged ice (m^.5) 
                            ! (krdg_redist = 1) 
+
+      logical (kind=log_kind), intent(in), optional :: &
+         calc_dragio_in    ! if true, calculate dragio from iceruf_ocn and thickness_ocn_layer1
 
 !-----------------------------------------------------------------------
 ! Parameters for atmosphere
@@ -696,10 +731,15 @@
       if (present(rhow_in)              ) rhow             = rhow_in
       if (present(cp_air_in)            ) cp_air           = cp_air_in
       if (present(emissivity_in)        ) emissivity       = emissivity_in
+      if (present(floediam_in)          ) floediam         = floediam_in
+      if (present(hfrazilmin_in)        ) hfrazilmin       = hfrazilmin_in
       if (present(cp_ice_in)            ) cp_ice           = cp_ice_in
       if (present(cp_ocn_in)            ) cp_ocn           = cp_ocn_in
       if (present(depressT_in)          ) depressT         = depressT_in
       if (present(dragio_in)            ) dragio           = dragio_in
+      if (present(iceruf_ocn_in)        ) iceruf_ocn       = iceruf_ocn_in
+      if (present(thickness_ocn_layer1_in) ) thickness_ocn_layer1 = thickness_ocn_layer1_in
+      if (present(calc_dragio_in)       ) calc_dragio      = calc_dragio_in
       if (present(albocn_in)            ) albocn           = albocn_in
       if (present(gravit_in)            ) gravit           = gravit_in
       if (present(viscosity_dyn_in)     ) viscosity_dyn    = viscosity_dyn_in
@@ -835,6 +875,9 @@
       if (present(t_sk_conv_in)         ) t_sk_conv        = t_sk_conv_in
       if (present(t_sk_ox_in)           ) t_sk_ox          = t_sk_ox_in
       if (present(frazil_scav_in)       ) frazil_scav      = frazil_scav_in
+      if (present(sw_redist_in)         ) sw_redist        = sw_redist_in
+      if (present(sw_frac_in)           ) sw_frac          = sw_frac_in
+      if (present(sw_dtemp_in)          ) sw_dtemp         = sw_dtemp_in
 
       call icepack_recompute_constants()
       if (icepack_warnings_aborted(subname)) return
@@ -854,8 +897,8 @@
          p2_out, p4_out, p5_out, p6_out, p05_out, p15_out, p25_out, p75_out, &
          p333_out, p666_out, spval_const_out, pih_out, piq_out, pi2_out, &
          rhos_out, rhoi_out, rhow_out, cp_air_out, emissivity_out, &
-         cp_ice_out, cp_ocn_out, &
-         depressT_out, dragio_out, albocn_out, gravit_out, viscosity_dyn_out, &
+         cp_ice_out, cp_ocn_out, hfrazilmin_out, floediam_out, &
+         depressT_out, dragio_out, thickness_ocn_layer1_out, iceruf_ocn_out, albocn_out, gravit_out, viscosity_dyn_out, &
          Tocnfrz_out, rhofresh_out, zvir_out, vonkar_out, cp_wv_out, &
          stefan_boltzmann_out, ice_ref_salinity_out, &
          Tffresh_out, Lsub_out, Lvap_out, Timelt_out, Tsmelt_out, &
@@ -875,7 +918,7 @@
          rsnw_mlt_out, dEdd_algae_out, &
          kalg_out, kstrength_out, krdg_partic_out, krdg_redist_out, mu_rdg_out, &
          atmbndy_out, calc_strair_out, formdrag_out, highfreq_out, natmiter_out, &
-         atmiter_conv_out, &
+         atmiter_conv_out, calc_dragio_out, &
          tfrz_option_out, kitd_out, kcatbound_out, hs0_out, frzpnd_out, &
          floeshape_out, wave_spec_out, wave_spec_type_out, nfreq_out, &
          dpscale_out, rfracmin_out, rfracmax_out, pndaspect_out, hs1_out, hp1_out, &
@@ -887,7 +930,8 @@
          T_max_out, fsal_out, op_dep_min_out, fr_graze_s_out, fr_graze_e_out, &
          fr_mort2min_out, fr_resp_s_out, fr_dFe_out, &
          k_nitrif_out, t_iron_conv_out, max_loss_out, max_dfe_doc1_out, &
-         y_sk_DMS_out, t_sk_conv_out, t_sk_ox_out, frazil_scav_out)
+         y_sk_DMS_out, t_sk_conv_out, t_sk_ox_out, frazil_scav_out, &
+         sw_redist_out, sw_frac_out, sw_dtemp_out)
 
       !-----------------------------------------------------------------
       ! parameter constants
@@ -924,6 +968,8 @@
 !-----------------------------------------------------------------------
 
       real (kind=dbl_kind), intent(out), optional :: &
+         floediam_out,   & ! effective floe diameter for lateral melt (m)
+         hfrazilmin_out, & ! min thickness of new frazil ice (m)
          cp_ice_out,     & ! specific heat of fresh ice (J/kg/K)
          cp_ocn_out,     & ! specific heat of ocn    (J/kg/K)
          depressT_out,   & ! Tf:brine salinity ratio (C/ppt)
@@ -1023,6 +1069,13 @@
          rsnw_mlt_out , & ! maximum melting snow grain radius (10^-6 m)
          kalg_out         ! algae absorption coefficient for 0.5 m thick layer
 
+      logical (kind=log_kind), intent(out), optional :: &
+         sw_redist_out    ! redistribute shortwave
+
+      real (kind=dbl_kind), intent(out), optional :: & 
+         sw_frac_out  , & ! Fraction of internal shortwave moved to surface
+         sw_dtemp_out     ! temperature difference from melting
+
 !-----------------------------------------------------------------------
 ! Parameters for dynamics
 !-----------------------------------------------------------------------
@@ -1032,6 +1085,8 @@
          Pstar_out,      & ! constant in Hibler strength formula 
          Cstar_out,      & ! constant in Hibler strength formula 
          dragio_out,     & ! ice-ocn drag coefficient
+         thickness_ocn_layer1_out, & ! thickness of first ocean level (m)
+         iceruf_ocn_out, & ! under-ice roughness (m)
          gravit_out,     & ! gravitational acceleration (m/s^2)
          iceruf_out        ! ice surface roughness (m)
 
@@ -1046,6 +1101,9 @@
       real (kind=dbl_kind), intent(out), optional :: &  
          mu_rdg_out         ! gives e-folding scale of ridged ice (m^.5) 
                             ! (krdg_redist = 1) 
+
+      logical (kind=log_kind), intent(out), optional :: &
+         calc_dragio_out    ! if true, compute dragio from iceruf_ocn and thickness_ocn_layer1
 
 !-----------------------------------------------------------------------
 ! Parameters for atmosphere
@@ -1233,10 +1291,15 @@
       if (present(rhow_out)              ) rhow_out         = rhow
       if (present(cp_air_out)            ) cp_air_out       = cp_air
       if (present(emissivity_out)        ) emissivity_out   = emissivity
+      if (present(floediam_out)          ) floediam_out     = floediam
+      if (present(hfrazilmin_out)        ) hfrazilmin_out   = hfrazilmin
       if (present(cp_ice_out)            ) cp_ice_out       = cp_ice
       if (present(cp_ocn_out)            ) cp_ocn_out       = cp_ocn
       if (present(depressT_out)          ) depressT_out     = depressT
       if (present(dragio_out)            ) dragio_out       = dragio
+      if (present(iceruf_ocn_out)        ) iceruf_ocn_out   = iceruf_ocn
+      if (present(thickness_ocn_layer1_out) ) thickness_ocn_layer1_out = thickness_ocn_layer1
+      if (present(calc_dragio_out)       ) calc_dragio_out  = calc_dragio
       if (present(albocn_out)            ) albocn_out       = albocn
       if (present(gravit_out)            ) gravit_out       = gravit
       if (present(viscosity_dyn_out)     ) viscosity_dyn_out= viscosity_dyn
@@ -1375,6 +1438,9 @@
       if (present(Lfresh_out)            ) Lfresh_out       = Lfresh
       if (present(cprho_out)             ) cprho_out        = cprho
       if (present(Cp_out)                ) Cp_out           = Cp
+      if (present(sw_redist_out)         ) sw_redist_out    = sw_redist
+      if (present(sw_frac_out)           ) sw_frac_out      = sw_frac
+      if (present(sw_dtemp_out)          ) sw_dtemp_out     = sw_dtemp
 
       call icepack_recompute_constants()
       if (icepack_warnings_aborted(subname)) return
@@ -1401,10 +1467,15 @@
         write(iounit,*) "  rhow   = ",rhow
         write(iounit,*) "  cp_air = ",cp_air
         write(iounit,*) "  emissivity = ",emissivity
+        write(iounit,*) "  floediam   = ",floediam
+        write(iounit,*) "  hfrazilmin = ",hfrazilmin
         write(iounit,*) "  cp_ice = ",cp_ice
         write(iounit,*) "  cp_ocn = ",cp_ocn
         write(iounit,*) "  depressT = ",depressT
         write(iounit,*) "  dragio = ",dragio
+        write(iounit,*) "  calc_dragio = ",calc_dragio
+        write(iounit,*) "  iceruf_ocn = ",iceruf_ocn
+        write(iounit,*) "  thickness_ocn_layer1 = ",thickness_ocn_layer1
         write(iounit,*) "  albocn = ",albocn
         write(iounit,*) "  gravit = ",gravit
         write(iounit,*) "  viscosity_dyn = ",viscosity_dyn
@@ -1547,6 +1618,9 @@
         write(iounit,*) "  t_sk_conv     = ", t_sk_conv
         write(iounit,*) "  t_sk_ox       = ", t_sk_ox
         write(iounit,*) "  frazil_scav   = ", frazil_scav
+        write(iounit,*) "  sw_redist     = ", sw_redist
+        write(iounit,*) "  sw_frac       = ", sw_frac
+        write(iounit,*) "  sw_dtemp      = ", sw_dtemp
 
       end subroutine icepack_write_parameters
 
@@ -1559,6 +1633,8 @@
 
 !autodocument_end
 
+      real (kind=dbl_kind) :: lambda
+
       character(len=*),parameter :: subname='(icepack_recompute_constants)'
 
         cprho  = cp_ocn*rhow
@@ -1568,6 +1644,13 @@
         piq    = p5*p5*pi
         pi2    = c2*pi
         rad_to_deg = c180/pi
+
+        if (calc_dragio) then
+           dragio = (vonkar/log(p5 * thickness_ocn_layer1/iceruf_ocn))**2 ! dragio at half first layer
+           lambda = (thickness_ocn_layer1 - iceruf_ocn) / &
+                    (thickness_ocn_layer1*(sqrt(dragio)/vonkar*(log(c2) - c1 + iceruf_ocn/thickness_ocn_layer1) + c1))
+           dragio = dragio*lambda**2
+        endif
 
       end subroutine icepack_recompute_constants
 

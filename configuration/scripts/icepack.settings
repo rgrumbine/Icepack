@@ -1,9 +1,9 @@
-#! /bin/csh -f
+#!/bin/csh -f
 
 setenv ICE_CASENAME   undefined
 setenv ICE_SANDBOX    undefined
 setenv ICE_MACHINE    undefined
-setenv ICE_COMPILER   undefined
+setenv ICE_ENVNAME    undefined
 setenv ICE_MACHCOMP   undefined
 setenv ICE_SCRIPTS    undefined
 setenv ICE_CASEDIR    undefined
@@ -60,7 +60,7 @@ setenv TRBGCS    0         # set to 1 for skeletal layer tracers
                            # (needs TRBGCZ = 0) 
 setenv TRBGCZ    0         # set to 1 for zbgc tracers
                            # (needs TRBGCS = 0 and TRBRI = 1)         
-setenv NBGCLYR   7         # number of zbgc layers
+setenv NBGCLYR   1         # number of zbgc layers
 setenv TRZAERO   0         # number of z aerosol tracers 
                            # (up to max_aero = 6)
 setenv TRALG     0         # number of algal tracers
@@ -78,6 +78,6 @@ setenv TRFED     0         # number of dissolved iron tracers
 
 ### Specialty code
 setenv ICE_BLDDEBUG  false  # build debug flags
-setenv ICE_CODECOV  false   # code coverage flag
+setenv ICE_COVERAGE  false   # code coverage flag
 
 
