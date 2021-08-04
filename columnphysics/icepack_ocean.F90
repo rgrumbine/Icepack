@@ -7,8 +7,8 @@
       use icepack_kinds
       use icepack_parameters, only: c0, c1, c1000
       use icepack_parameters, only: Tffresh, stefan_boltzmann, Lvap, cprho
-!debug      use icepack_warnings, only: warnstr, icepack_warnings_add
-!debug      use icepack_warnings, only: icepack_warnings_setabort, icepack_warnings_aborted
+      use icepack_warnings, only: warnstr, icepack_warnings_add
+      use icepack_warnings, only: icepack_warnings_setabort, icepack_warnings_aborted
 
       implicit none
 
@@ -82,7 +82,7 @@
          TsfK , & ! surface temperature (K)
          swabs    ! surface absorbed shortwave heat flux (W/m^2)
 
-!debug      character(len=*),parameter :: subname='(icepack_ocn_mixed_layer)'
+      character(len=*),parameter :: subname='(icepack_ocn_mixed_layer)'
 
       ! shortwave radiative flux
       swabs = (c1-alvdr_ocn) * swvdr + (c1-alidr_ocn) * swidr &
