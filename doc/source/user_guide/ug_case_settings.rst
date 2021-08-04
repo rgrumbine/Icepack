@@ -8,7 +8,34 @@ Case Settings
 There are two important files that define the case, **icepack.settings** and 
 **icepack_in**.  **icepack.settings** is a list of env variables that define many
 values used to setup, build and run the case.  **icepack_in** is the input namelist file
-for the icepack driver.  Variables in both files are described below.
+for the icepack driver.  Variables in both files are described below.  In addition,
+the first table documents available C Preprocessor Macros.
+
+.. _tabcpps:
+
+Table of C Preprocessor (CPP) Macros
+---------------------------------------------------
+
+The Icepack model supports a few C Preprocessor (CPP) Macros.  These
+can be turned on during compilation to activate different pieces of source
+code.  The main purpose is to introduce build-time code modifications to
+include or exclude certain libraries or Fortran language features, in part to
+support CICE or other applications.  More information
+can be found in :ref:`cicecpps`.  The following CPPs are available.
+
+.. csv-table:: **CPP Macros**
+   :header: "CPP name", "description"
+   :widths: 15, 60
+
+   "",""
+   "**General Macros**", ""
+   "NO_I8", "Converts ``integer*8`` to ``integer*4``."
+   "NO_R16", "Converts ``real*16`` to ``real*8``."
+   "",""
+   "**Application Macros**", ""
+   "CESMCOUPLED", "Turns on code changes for the CESM coupled application                          "
+   "CICE_IN_NEMO", "Turns on code changes for coupling in the NEMO ocean model"
+
 
 .. _tabsettings:
 
@@ -27,7 +54,7 @@ can be modified as needed.
    "ICE_CASENAME", "string", "case name", "set by icepack.setup"
    "ICE_SANDBOX", "string", "sandbox directory", "set by icepack.setup"
    "ICE_MACHINE", "string", "machine name", "set by icepack.setup"
-   "ICE_COMPILER", "string", "environment name", "set by icepack.setup"
+   "ICE_ENVNAME", "string", "compilation environment", "set by icepack.setup"
    "ICE_MACHCOMP", "string", "machine_environment name", "set by icepack.setup"
    "ICE_SCRIPTS", "string", "scripts directory", "set by icepack.setup"
    "ICE_CASEDIR", "string", "case directory", "set by icepack.setup"
@@ -71,7 +98,7 @@ can be modified as needed.
    "TRZS", "0,1", "zsalinity tracer, needs TRBRI=1", "0"
    "TRBGCS", "0,1", "skeletal layer tracer, needs TRBGCZ=0", "0"
    "TRBGCZ", "0,1", "zbgc tracers, needs TRBGCS=0 and TRBRI=1", "0"
-   "NBGCLYR", "integer", "number of zbgc layers", "7"
+   "NBGCLYR", "integer", "number of zbgc layers", "1"
    "TRZAERO", "0-6", "number of z aerosol tracers", "0"
    "TRALG", "0,1,2,3", "number of algal tracers", "0"
    "TRDOC", "0,1,2,3", "number of dissolved organic carbon", "0"
@@ -80,7 +107,7 @@ can be modified as needed.
    "TRFEP", "0,1,2", "number of particulate iron tracers", "0"
    "TRFED", "0,1,2", "number of dissolved iron tracers", "0"
    "ICE_BLDDEBUG", "true,false", "turn on compile debug flags", "false"
-   "ICE_CODECOV", "true,false", "turn on code coverage flags", "false"
+   "ICE_COVERAGE", "true,false", "turn on code coverage flags", "false"
 
 
 .. _tabnamelist:
@@ -172,6 +199,8 @@ thermo_nml
    "``conduct``", "``bubbly``", "conductivity scheme :cite:`Pringle07`", "``bubbly``"
    "", "``MU71``", "conductivity :cite:`Maykut71`", ""
    "``dSdt_slow_mode``", "real", "slow drainage strength parameter m/s/K", "-1.5e-7"
+   "``floediam``", "real", "effective floe diameter for lateral melt in m", "300.0"
+   "``hfrazilmin``", "real", "min thickness of new frazil ice in m", "0.05"
    "``kitd``", "``0``", "delta function ITD approximation", "1"
    "", "``1``", "linear remapping ITD approximation", ""
    "``ksno``", "real", "snow thermal conductivity", "0.3"
@@ -225,6 +254,9 @@ shortwave_nml
    "``R_snw``", "real", "tuning parameter for snow (broadband albedo) from Delta-Eddington shortwave", "1.5"
    "``shortwave``", "``ccsm3``", "NCAR CCSM3 shortwave distribution method", "``dEdd``"
    "", "``dEdd``", "Delta-Eddington method", ""
+   "``sw_dtemp``", "real", "temperature from melt for sw_redist", "0.02"
+   "``sw_frac``", "real", "fraction of shortwave redistribution", "0.9"
+   "``sw_redist``", "logical", "shortwave redistribution", ".false."
    "", "", "", ""
 
 ponds_nml
@@ -275,7 +307,7 @@ forcing_nml
    "``data_dir``", "string", "path to forcing data directory", "' '"
    "``default_season``", "``summer``", "forcing initial summer values", "``winter``"
    "", "``winter``", "forcing initial winter values", ""
-   "``emissivity``", "real", "emissivity of snow and ice", "0.95"
+   "``emissivity``", "real", "emissivity of snow and ice", "0.985"
    "``fbot_xfer_type``", "``Cdn_ocn``", "variabler ocean heat transfer coefficient scheme", "``constant``"
    "", "``constant``", "constant ocean heat transfer coefficient", ""
    "``formdrag``", "logical", "calculate form drag", "``.false.``"
