@@ -42,8 +42,7 @@ icepack_atm_boundary
            Cdn_atm  , &    ! neutral drag coefficient
            Cdn_atm_ratio_n ! ratio drag coeff / neutral drag coeff
   
-        real (kind=dbl_kind), &
-           intent(inout) :: &
+        real (kind=dbl_kind), intent(inout) :: &
            strx     , & ! x surface stress (N)
            stry         ! y surface stress (N)
   
@@ -598,6 +597,65 @@ icepack_step_ridge
   
         logical (kind=log_kind), dimension(:), intent(inout) :: &
            first_ice    ! true until ice forms
+  
+ 
+
+icepack_mushy_physics.F90
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. _icepack_mushy_density_brine:
+
+icepack_mushy_density_brine
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. code-block:: fortran
+
+  ! Compute density of brine from brine salinity
+  
+    function icepack_mushy_density_brine(Sbr) result(rho)
+  
+      real(kind=dbl_kind), intent(in) :: &
+           Sbr ! brine salinity (ppt)
+  
+      real(kind=dbl_kind) :: &
+           rho ! brine density (kg m-3)
+  
+ 
+
+.. _icepack_mushy_temperature_mush:
+
+icepack_mushy_temperature_mush
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. code-block:: fortran
+
+  ! Temperature of mush from mush enthalpy and bulk salinity
+  
+    function icepack_mushy_temperature_mush(zqin, zSin) result(zTin)
+  
+      real(kind=dbl_kind), intent(in) :: &
+           zqin   , & ! ice enthalpy (J m-3)
+           zSin       ! ice layer bulk salinity (ppt)
+  
+      real(kind=dbl_kind) :: &
+           zTin       ! ice layer temperature (C)
+  
+ 
+
+.. _icepack_mushy_liquid_fraction:
+
+icepack_mushy_liquid_fraction
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. code-block:: fortran
+
+  ! Liquid fraction of mush from mush temperature and bulk salinity
+  
+    function icepack_mushy_liquid_fraction(zTin, zSin) result(phi)
+  
+      real(kind=dbl_kind), intent(in) :: &
+           zTin, & ! ice layer temperature (C)
+           zSin    ! ice layer bulk salinity (ppt)
+  
+      real(kind=dbl_kind) :: &
+           phi     ! liquid fraction
   
  
 
@@ -1908,7 +1966,7 @@ icepack_step_therm2
                                        Tf,           sss,           &
                                        salinz,                      &
                                        rside,        meltl,         &
-                                       fside,                       &
+                                       fside,        wlat,          &
                                        frzmlt,       frazil,        &
                                        frain,        fpond,         &
                                        fresh,        fsalt,         &
@@ -1931,14 +1989,16 @@ icepack_step_therm2
   
         integer (kind=int_kind), intent(in) :: &
            ncat     , & ! number of thickness categories
-           nfsd     , & ! number of floe size categories
            nltrcr   , & ! number of zbgc tracers
            nblyr    , & ! number of bio layers
            nilyr    , & ! number of ice layers
            nslyr        ! number of snow layers
   
+        integer (kind=int_kind), intent(in), optional :: &
+           nfsd         ! number of floe size categories
+  
         logical (kind=log_kind), intent(in) :: &
-           update_ocn_f     ! if true, update fresh water and salt fluxes
+           update_ocn_f ! if true, update fresh water and salt fluxes
   
         real (kind=dbl_kind), dimension(0:ncat), intent(inout) :: &
            hin_max      ! category boundaries (m)
@@ -1948,40 +2008,27 @@ icepack_step_therm2
            Tf       , & ! freezing temperature (C)
            sss      , & ! sea surface salinity (ppt)
            rside    , & ! fraction of ice that melts laterally
-           fside    , & ! lateral heat flux (W/m^2)
-           frzmlt   , & ! freezing/melting potential (W/m^2)
-           wave_sig_ht ! significant height of waves in ice (m)
-  
-        real (kind=dbl_kind), dimension(:), intent(in)  :: &
-           wave_spectrum  ! ocean surface wave spectrum E(f) (m^2 s)
-  
-        real(kind=dbl_kind), dimension(:), intent(in) :: &
-           wavefreq,              & ! wave frequencies (s^-1)
-           dwavefreq                ! wave frequency bin widths (s^-1)
-  
-        real (kind=dbl_kind), dimension (:), intent(in) :: &
-           floe_rad_c     , & ! fsd size bin centre in m (radius)
-           floe_binwidth      ! fsd size bin width in m (radius)
+           frzmlt       ! freezing/melting potential (W/m^2) 
   
         integer (kind=int_kind), dimension (:), intent(in) :: &
            trcr_depend, & ! = 0 for aicen tracers, 1 for vicen, 2 for vsnon
            n_trcr_strata  ! number of underlying tracer layers
   
         real (kind=dbl_kind), dimension (:,:), intent(in) :: &
-           trcr_base      ! = 0 or 1 depending on tracer dependency
-                          ! argument 2:  (1) aice, (2) vice, (3) vsno
+           trcr_base    ! = 0 or 1 depending on tracer dependency
+                        ! argument 2:  (1) aice, (2) vice, (3) vsno
   
         integer (kind=int_kind), dimension (:,:), intent(in) :: &
-           nt_strata      ! indices of underlying tracer layers
+           nt_strata    ! indices of underlying tracer layers
   
         real (kind=dbl_kind), dimension (nblyr+2), intent(in) :: &
-           bgrid              ! biology nondimensional vertical grid points
+           bgrid        ! biology nondimensional vertical grid points
   
         real (kind=dbl_kind), dimension (nblyr+1), intent(in) :: &
-           igrid              ! biology vertical interface points
+           igrid        ! biology vertical interface points
   
         real (kind=dbl_kind), dimension (nilyr+1), intent(in) :: &
-           cgrid              ! CICE vertical coordinate
+           cgrid        ! CICE vertical coordinate
   
         real (kind=dbl_kind), dimension(:), intent(in) :: &
            salinz   , & ! initial salinity profile
@@ -1990,6 +2037,7 @@ icepack_step_therm2
         real (kind=dbl_kind), intent(inout) :: &
            aice     , & ! sea ice concentration
            aice0    , & ! concentration of open water
+           fside    , & ! lateral heat flux (W/m^2)
            frain    , & ! rainfall rate (kg/m^2 s)
            fpond    , & ! fresh water flux to ponds (kg/m^2/s)
            fresh    , & ! fresh water flux to ocean (kg/m^2/s)
@@ -1999,6 +2047,9 @@ icepack_step_therm2
            meltl    , & ! lateral ice melt         (m/step-->cm/day)
            frazil   , & ! frazil ice growth        (m/step-->cm/day)
            frazil_diag  ! frazil ice growth diagnostic (m/step-->cm/day)
+  
+        real (kind=dbl_kind), intent(in), optional :: &
+           wlat         ! lateral melt rate (m/s)
   
         real (kind=dbl_kind), dimension(:), intent(inout) :: &
            aicen_init,& ! initial concentration of ice
@@ -2013,14 +2064,7 @@ icepack_step_therm2
            trcrn        ! tracers
   
         logical (kind=log_kind), dimension(:), intent(inout) :: &
-           first_ice      ! true until ice forms
-  
-        real (kind=dbl_kind), dimension(:), intent(out) :: &
-                              ! change in floe size distribution (area)
-           d_afsd_latg    , & ! due to fsd lateral growth
-           d_afsd_newi    , & ! new ice formation
-           d_afsd_latm    , & ! lateral melt
-           d_afsd_weld        ! welding
+           first_ice    ! true until ice forms
   
         real (kind=dbl_kind), intent(inout), optional :: &
            frz_onset    ! day of year that freezing begins (congel or frazil)
@@ -2030,12 +2074,34 @@ icepack_step_therm2
   
         ! water isotopes
         real (kind=dbl_kind), dimension(:), intent(inout), optional :: &
-           fiso_ocn       ! isotope flux to ocean  (kg/m^2/s)
+           fiso_ocn     ! isotope flux to ocean  (kg/m^2/s)
   
         real (kind=dbl_kind), intent(in), optional :: &
            HDO_ocn    , & ! ocean concentration of HDO (kg/kg)
            H2_16O_ocn , & ! ocean concentration of H2_16O (kg/kg)
            H2_18O_ocn     ! ocean concentration of H2_18O (kg/kg)
+  
+        real (kind=dbl_kind), intent(in), optional :: &
+           wave_sig_ht    ! significant height of waves in ice (m)
+  
+        real (kind=dbl_kind), dimension(:), intent(in), optional  :: &
+           wave_spectrum  ! ocean surface wave spectrum E(f) (m^2 s)
+  
+        real(kind=dbl_kind), dimension(:), intent(in), optional :: &
+           wavefreq, &    ! wave frequencies (s^-1)
+           dwavefreq      ! wave frequency bin widths (s^-1)
+  
+        real (kind=dbl_kind), dimension(:), intent(out), optional :: &
+                          ! change in floe size distribution (area)
+           d_afsd_latg, & ! due to fsd lateral growth
+           d_afsd_newi, & ! new ice formation
+           d_afsd_latm, & ! lateral melt
+           d_afsd_weld    ! welding
+  
+        real (kind=dbl_kind), dimension (:), intent(in), optional :: &
+           floe_rad_c, &  ! fsd size bin centre in m (radius)
+           floe_binwidth  ! fsd size bin width in m (radius)
+  
  
 
 icepack_therm_shared.F90
@@ -2226,7 +2292,7 @@ icepack_step_therm1
                                       fbot        ,               &
                                       Tbot        , Tsnice      , &
                                       frzmlt      , rside       , &
-                                      fside       ,               &
+                                      fside       , wlat        , &
                                       fsnow       , frain       , &
                                       fpond       , fsloss      , &
                                       fsurf       , fsurfn      , &
@@ -2367,21 +2433,28 @@ icepack_step_therm1
            mlt_onset   , & ! day of year that sfc melting begins
            frz_onset       ! day of year that freezing begins (congel or frazil)
   
+        real (kind=dbl_kind), intent(out), optional :: &
+           wlat            ! lateral melt rate                    (m/s)
+  
         real (kind=dbl_kind), intent(inout), optional :: &
            fswthru_vdr , & ! vis dir shortwave penetrating to ocean (W/m^2)
            fswthru_vdf , & ! vis dif shortwave penetrating to ocean (W/m^2)
            fswthru_idr , & ! nir dir shortwave penetrating to ocean (W/m^2)
            fswthru_idf , & ! nir dif shortwave penetrating to ocean (W/m^2)
            dsnow       , & ! change in snow depth     (m/step-->cm/day)
-           meltsliq    , & ! mass of snow melt                 (kg/m^2)
            fsloss          ! rate of snow loss to leads      (kg/m^2/s)
+  
+        real (kind=dbl_kind), intent(out), optional :: &
+           meltsliq        ! mass of snow melt                 (kg/m^2)
   
         real (kind=dbl_kind), dimension(:), intent(inout), optional :: &
            Qa_iso      , & ! isotope specific humidity          (kg/kg)
            Qref_iso    , & ! isotope 2m atm ref spec humidity   (kg/kg)
            fiso_atm    , & ! isotope deposition rate         (kg/m^2 s)
            fiso_ocn    , & ! isotope flux to ocean           (kg/m^2/s)
-           fiso_evap   , & ! isotope evaporation             (kg/m^2/s)
+           fiso_evap       ! isotope evaporation             (kg/m^2/s)
+  
+        real (kind=dbl_kind), dimension(:), intent(inout), optional :: &
            meltsliqn       ! mass of snow melt                 (kg/m^2)
   
         real (kind=dbl_kind), dimension(:,:), intent(inout), optional :: &

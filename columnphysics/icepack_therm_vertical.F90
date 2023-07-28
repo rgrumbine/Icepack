@@ -141,8 +141,7 @@
          massliq     ! liquid water mass in snow (kg/m^2)
 
       ! input from atmosphere
-      real (kind=dbl_kind), &
-         intent(in) :: &
+      real (kind=dbl_kind), intent(in) :: &
          flw     , & ! incoming longwave radiation (W/m^2)
          potT    , & ! air potential temperature  (K)
          Qa      , & ! specific humidity (kg/kg)
@@ -151,8 +150,7 @@
          shcoef  , & ! transfer coefficient for sensible heat
          lhcoef      ! transfer coefficient for latent heat
 
-      real (kind=dbl_kind), &
-         intent(inout) :: &
+      real (kind=dbl_kind), intent(inout) :: &
          fswsfc  , & ! SW absorbed at ice/snow surface (W m-2)
          fswint  , & ! SW absorbed in ice interior, below surface (W m-2)
          fpond       ! fresh water flux to ponds (kg/m^2/s)
@@ -527,9 +525,11 @@
       real (kind=dbl_kind), intent(out) :: &
          Tbot    , & ! ice bottom surface temperature (deg C)
          fbot    , & ! heat flux to ice bottom  (W/m^2)
-         wlat    , & ! lateral melt rate (m/s)
          rside   , & ! fraction of ice that melts laterally
          fside       ! lateral heat flux (W/m^2)
+
+      real (kind=dbl_kind), intent(out), optional :: &
+         wlat        ! lateral melt rate (m/s)
 
       ! local variables
 
@@ -539,6 +539,7 @@
 
       real (kind=dbl_kind) :: &
          etot    , & ! total energy in column
+         wlat_loc, & ! lateral melt rate (m/s)
          qavg        ! average enthalpy in column (approximate)
 
       real (kind=dbl_kind) :: &
@@ -569,7 +570,7 @@
       fside = c0
       Tbot  = Tf
       fbot  = c0
-      wlat  = c0
+      wlat_loc = c0
 
       if (aice > puny .and. frzmlt < c0) then ! ice can melt
 
@@ -605,8 +606,8 @@
       !    Steele (1992): JGR, 97, 17,729-17,738
       !-----------------------------------------------------------------
 
-         wlat = m1 * deltaT**m2 ! Maykut & Perovich
-         rside = wlat*dt*pi/(floeshape*floediam) ! Steele
+         wlat_loc = m1 * deltaT**m2 ! Maykut & Perovich
+         rside = wlat_loc*dt*pi/(floeshape*floediam) ! Steele
          rside = max(c0,min(rside,c1))
 
       !-----------------------------------------------------------------
@@ -643,6 +644,8 @@
          fside = fside * xtmp
 
       endif
+
+      if (present(wlat)) wlat=wlat_loc
 
       end subroutine frzmlt_bottom_lateral
 
@@ -690,8 +693,7 @@
       real (kind=dbl_kind), dimension (:), intent(in) :: &
          zSin            ! internal ice layer salinities
 
-      real (kind=dbl_kind), dimension (:), &
-         intent(inout) :: &
+      real (kind=dbl_kind), dimension (:), intent(inout) :: &
          zqsn        , & ! snow enthalpy
          zTsn            ! snow temperature
 
@@ -1770,14 +1772,12 @@
 !     real (kind=dbl_kind), intent(in) :: &
 !        dt      ! time step
 
-      real (kind=dbl_kind), &
-         intent(inout) :: &
+      real (kind=dbl_kind), intent(inout) :: &
          snoice  , & ! snow-ice formation       (m/step-->cm/day)
          dsnow       ! change in snow thickness after snow-ice formation (m)
 !        iage        ! ice age (s)
 
-      real (kind=dbl_kind), &
-         intent(inout) :: &
+      real (kind=dbl_kind), intent(inout) :: &
          hin     , & ! ice thickness (m)
          hsn         ! snow thickness (m)
 
